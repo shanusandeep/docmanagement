@@ -1,0 +1,93 @@
+@page "/access-db"
+@attribute [Authorize]
+@implements IDisposable
+@inject SealedLibraryService Library
+@inject DocumentRegistry Registry
+@inject ActivityLog Log
+
+<PageTitle>Access Database — Scenario 2</PageTitle>
+
+<h1>Access Database</h1>
+<p class="text-muted">
+    The application database is the single source of truth for who may access what.
+    SharePoint permissions are a projection of this table — and the reconciliation
+    sweep below proves it by removing anything SharePoint has that this table doesn't.
+    (Demo storage: <code>@Registry.FilePath</code>)
+</p>
+
+<h4>Active grants</h4>
+@if (!Registry.AllGrants().Any())
+{
+    <p><em>No active grants — every document is sealed.</em></p>
+}
+else
+{
+    <table class="table table-sm" style="max-width: 900px">
+        <thead>
+            <tr><th>Document</th><th>User</th><th>Role</th><th>SharePoint permission id</th><th>Granted (UTC)</th></tr>
+        </thead>
+        <tbody>
+            @foreach (var g in Registry.AllGrants())
+            {
+                var doc = Registry.GetDocument(g.DocumentId);
+                <tr>
+                    <td>@(doc?.Name ?? g.DocumentId.ToString())</td>
+                    <td>@g.UserUpn</td>
+                    <td><span class="badge @(g.Role == "write" ? "bg-primary" : "bg-info text-dark")">@g.Role</span></td>
+                    <td><code>@g.PermissionId</code></td>
+                    <td>@g.GrantedAtUtc.ToString("u")</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+<h4 class="mt-4">Reconciliation</h4>
+<div class="d-flex gap-2 align-items-center mb-2">
+    <div class="form-check">
+        <input class="form-check-input" type="checkbox" id="dryRun" @bind="dryRun" />
+        <label class="form-check-label" for="dryRun">Preview only (don't remove)</label>
+    </div>
+    <button class="btn btn-warning btn-sm" @onclick="Reconcile" disabled="@busy">
+        @(busy ? "Running…" : "Reconcile SharePoint against this database")
+    </button>
+</div>
+
+@if (report != null)
+{
+    <ul class="list-group" style="max-width: 900px">
+        @foreach (var line in report)
+        {
+            <li class="list-group-item @(line.StartsWith("REMOVED") ? "list-group-item-warning" : line.StartsWith("WOULD") ? "list-group-item-info" : "list-group-item-success")">
+                @line
+            </li>
+        }
+    </ul>
+}
+
+@if (error != null)
+{
+    <div class="alert alert-danger mt-2">@error</div>
+}
+
+@code {
+    private bool dryRun = true;
+    private bool busy;
+    private string? error;
+    private List<string>? report;
+
+    protected override void OnInitialized() => Log.Changed += OnLogChanged;
+
+    private void OnLogChanged() => _ = InvokeAsync(StateHasChanged);
+
+    private async Task Reconcile()
+    {
+        busy = true;
+        error = null;
+        try { report = await Library.ReconcileAsync(dryRun); }
+        catch (Exception ex) { error = ex.Message; }
+        finally { busy = false; }
+    }
+
+    public void Dispose() => Log.Changed -= OnLogChanged;
+}

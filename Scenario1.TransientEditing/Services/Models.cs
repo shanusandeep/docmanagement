@@ -1,0 +1,36 @@
+namespace Scenario1.TransientEditing.Services;
+
+public class SharePointOptions
+{
+    public string SiteId { get; set; } = "";
+    public string DriveId { get; set; } = "";
+}
+
+public class DemoOptions
+{
+    public string NetworkSharePath { get; set; } = "";
+    public int IdleThresholdSeconds { get; set; } = 120;
+    public int SweepIntervalSeconds { get; set; } = 30;
+    public bool UsePermanentDelete { get; set; } = false;
+}
+
+/// <summary>A document currently checked out to SharePoint for editing.</summary>
+public class DocumentState
+{
+    public string FileName { get; set; } = "";
+    public string DriveItemId { get; set; } = "";
+    public string WebUrl { get; set; } = "";
+    public string CheckedOutBy { get; set; } = "";
+    public DateTime CheckedOutAtUtc { get; set; }
+    public DateTime LastActivityUtc { get; set; }
+    public string? LastModifiedBy { get; set; }
+}
+
+public class ShareFile
+{
+    public string Name { get; set; } = "";
+    public long SizeBytes { get; set; }
+    public DateTime ModifiedUtc { get; set; }
+}
+
+public enum SyncResult { StillActive, Locked, Synced, NotFound, Error }

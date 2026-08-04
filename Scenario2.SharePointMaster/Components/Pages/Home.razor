@@ -1,0 +1,69 @@
+@page "/"
+@inject IConfiguration Config
+@inject SealedLibraryService Library
+@inject DocumentRegistry Registry
+
+<PageTitle>Scenario 2 — Sealed Library</PageTitle>
+
+<h1>Scenario 2 — SharePoint as the System of Record</h1>
+
+<p class="lead">
+    Documents live permanently in a <strong>sealed SharePoint library</strong>: no user or group
+    holds any standing access — the only custodian is the app-only service principal. When a user
+    clicks <strong>View/Edit</strong>, the app grants them permission on that one document
+    (per their role in the application database), they edit as themselves in Word with autosave,
+    co-authoring and Track Changes, and the grant is withdrawn automatically once the document
+    goes idle and unlocked. In exchange: full version history with restore, real retention
+    (recycle bin + Purview policy), and Microsoft's audit log on top of ours.
+</p>
+
+<h4>Demo flow</h4>
+<ol>
+    <li>Go to <a href="documents">Documents</a> and create a document — it is born in the sealed library with Track Changes enforced. Nobody can open it yet.</li>
+    <li>Click <strong>View/Edit</strong> — watch the JIT grant appear in the <a href="access-db">Access Database</a>, then the document opens in Word.</li>
+    <li>Browse the SharePoint site directly as a test user — only granted documents are visible; everything else is security-trimmed away, including search.</li>
+    <li>Close Word — after the idle threshold the sweep withdraws the grant. The document vanishes from the user's SharePoint view.</li>
+    <li>Open <strong>Versions</strong> on any document — view history and restore any previous version as current.</li>
+    <li>Run <strong>Reconcile</strong> on the Access Database page — proof that the app database is the single source of truth.</li>
+</ol>
+
+<h4>Setup status</h4>
+<ul class="list-group" style="max-width: 720px">
+    <li class="list-group-item d-flex justify-content-between">
+        <span>Entra ID (AzureAd) configured — TenantId / ClientId / ClientSecret</span>
+        @if (AadConfigured)
+        {
+            <span class="badge bg-success align-self-center">OK</span>
+        }
+        else
+        {
+            <span class="badge bg-warning text-dark align-self-center">Set in appsettings.json / user-secrets</span>
+        }
+    </li>
+    <li class="list-group-item d-flex justify-content-between">
+        <span>Sealed library custodian (app-only Graph + DriveId)</span>
+        @if (Library.IsConfigured)
+        {
+            <span class="badge bg-success align-self-center">OK</span>
+        }
+        else
+        {
+            <span class="badge bg-warning text-dark align-self-center">Required for Scenario 2</span>
+        }
+    </li>
+    <li class="list-group-item d-flex justify-content-between">
+        <span>Registered documents in the app database</span>
+        <span class="badge bg-secondary align-self-center">@Registry.Documents().Count</span>
+    </li>
+</ul>
+
+<p class="mt-3 text-muted">
+    See <code>README.md</code> for setup (redirect URI <code>https://localhost:7292/signin-oidc</code>).
+    The application permission needs <code>Sites.Selected</code> with <em>write</em> granted on the target site.
+</p>
+
+@code {
+    private bool AadConfigured =>
+        !(Config["AzureAd:TenantId"] ?? "YOUR_").StartsWith("YOUR_") &&
+        !(Config["AzureAd:ClientId"] ?? "YOUR_").StartsWith("YOUR_");
+}

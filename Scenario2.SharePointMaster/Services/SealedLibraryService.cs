@@ -1,0 +1,254 @@
+using Azure.Identity;
+using Microsoft.Extensions.Options;
+using Microsoft.Graph;
+using Microsoft.Graph.Models;
+using Microsoft.Graph.Models.ODataErrors;
+
+namespace Scenario2.SharePointMaster.Services;
+
+/// <summary>
+/// All operations against the sealed document library, performed as the
+/// app-only service principal (the library's custodian). Users hold no
+/// standing access — they receive just-in-time per-document grants here,
+/// and always edit under their own identity via those grants.
+/// </summary>
+public class SealedLibraryService
+{
+    private readonly GraphServiceClient? _graph;
+    private readonly DocumentRegistry _registry;
+    private readonly WordTemplateService _word;
+    private readonly ActivityLog _log;
+    private readonly SharePointOptions _sp;
+
+    public bool IsConfigured => _graph != null && !_sp.DriveId.StartsWith("YOUR_");
+
+    public SealedLibraryService(
+        IConfiguration config,
+        DocumentRegistry registry,
+        WordTemplateService word,
+        ActivityLog log,
+        IOptions<SharePointOptions> sp)
+    {
+        _registry = registry;
+        _word = word;
+        _log = log;
+        _sp = sp.Value;
+
+        var tenantId = config["AzureAd:TenantId"];
+        var clientId = config["AzureAd:ClientId"];
+        var clientSecret = config["AzureAd:ClientSecret"];
+
+        if (!string.IsNullOrWhiteSpace(tenantId) && !tenantId.StartsWith("YOUR_") &&
+            !string.IsNullOrWhiteSpace(clientId) && !clientId.StartsWith("YOUR_") &&
+            !string.IsNullOrWhiteSpace(clientSecret) && !clientSecret.StartsWith("set-via"))
+        {
+            var credential = new ClientSecretCredential(tenantId, clientId, clientSecret);
+            _graph = new GraphServiceClient(credential, ["https://graph.microsoft.com/.default"]);
+        }
+    }
+
+    private GraphServiceClient Graph =>
+        _graph ?? throw new InvalidOperationException(
+            "App-only Graph credentials are not configured (AzureAd:TenantId/ClientId/ClientSecret). Scenario 2 requires them — the service principal is the library custodian.");
+
+    // ---- Document lifecycle -------------------------------------------------
+
+    public async Task<RegisteredDocument> CreateDocumentAsync(string name, string caseNumber, string createdBy)
+    {
+        if (!name.EndsWith(".docx", StringComparison.OrdinalIgnoreCase)) name += ".docx";
+
+        _log.Info($"Creating '{name}' in the sealed library (as the service principal; Track Changes enforced)…");
+
+        var bytes = _word.CreateBlankDocx($"{caseNumber} — {Path.GetFileNameWithoutExtension(name)}");
+        using var ms = new MemoryStream(bytes);
+        var item = await Graph.Drives[_sp.DriveId].Items["root"]
+            .ItemWithPath(name).Content.PutAsync(ms)
+            ?? throw new InvalidOperationException("Upload returned no driveItem.");
+
+        var doc = new RegisteredDocument
+        {
+            Name = name,
+            CaseNumber = caseNumber,
+            DriveItemId = item.Id!,
+            WebUrl = item.WebUrl ?? "",
+            CreatedBy = createdBy,
+            CreatedAtUtc = DateTime.UtcNow,
+            LastActivityUtc = DateTime.UtcNow
+        };
+        _registry.AddDocument(doc);
+        _log.Info($"'{name}' registered (driveItemId {item.Id}). No user has access yet — the library is sealed.");
+        return doc;
+    }
+
+    /// <summary>Soft delete: the file goes to the site recycle bin (~93 days), demonstrating the retention story.</summary>
+    public async Task DeleteDocumentAsync(RegisteredDocument doc)
+    {
+        await Graph.Drives[_sp.DriveId].Items[doc.DriveItemId].DeleteAsync();
+        _registry.RemoveDocument(doc.Id);
+        _log.Info($"'{doc.Name}' deleted — recoverable from the SharePoint recycle bin for ~93 days (and governed by any Purview retention policy).");
+    }
+
+    // ---- Just-in-time access ------------------------------------------------
+
+    public async Task<AccessGrant> GrantAsync(RegisteredDocument doc, string upn, string role)
+    {
+        var existing = _registry.FindGrant(doc.Id, upn, role);
+        if (existing != null)
+        {
+            _log.Info($"{upn} already holds '{role}' on '{doc.Name}' — reusing the grant.");
+            return existing;
+        }
+
+        _log.Info($"JIT grant: giving {upn} '{role}' on '{doc.Name}' only…");
+
+        var body = new Microsoft.Graph.Drives.Item.Items.Item.Invite.InvitePostRequestBody
+        {
+            Recipients = [new DriveRecipient { Email = upn }],
+            RequireSignIn = true,
+            SendInvitation = false,
+            Roles = [role]
+        };
+        var response = await Graph.Drives[_sp.DriveId].Items[doc.DriveItemId]
+            .Invite.PostAsInvitePostResponseAsync(body);
+        var permissionId = response?.Value?.FirstOrDefault()?.Id
+            ?? throw new InvalidOperationException("Invite returned no permission.");
+
+        var grant = new AccessGrant
+        {
+            DocumentId = doc.Id,
+            UserUpn = upn,
+            Role = role,
+            PermissionId = permissionId,
+            GrantedAtUtc = DateTime.UtcNow
+        };
+        _registry.AddGrant(grant);
+        _log.Info($"Granted. Permission {permissionId} recorded in the app database; it lives exactly as long as the editing session.");
+        return grant;
+    }
+
+    public async Task RevokeGrantAsync(AccessGrant grant, RegisteredDocument doc)
+    {
+        try
+        {
+            await Graph.Drives[_sp.DriveId].Items[doc.DriveItemId]
+                .Permissions[grant.PermissionId].DeleteAsync();
+        }
+        catch (ODataError ex) when (ex.ResponseStatusCode == 404)
+        {
+            // already gone in SharePoint — still remove from the DB
+        }
+        _registry.RemoveGrant(grant.Id);
+        _log.Info($"Revoked {grant.UserUpn}'s '{grant.Role}' on '{doc.Name}'. The document disappears from their SharePoint views and search.");
+    }
+
+    public async Task RevokeAllAsync(RegisteredDocument doc)
+    {
+        foreach (var grant in _registry.GrantsFor(doc.Id))
+            await RevokeGrantAsync(grant, doc);
+    }
+
+    // ---- Inferred close -----------------------------------------------------
+
+    public async Task<DateTime?> GetLastModifiedUtcAsync(RegisteredDocument doc)
+    {
+        var item = await Graph.Drives[_sp.DriveId].Items[doc.DriveItemId].GetAsync();
+        return item?.LastModifiedDateTime?.UtcDateTime;
+    }
+
+    /// <summary>
+    /// Lock probe: checkout fails while anyone has the document open.
+    /// On success we immediately check in again — we only wanted the answer.
+    /// </summary>
+    public async Task<bool> IsUnlockedAsync(RegisteredDocument doc)
+    {
+        try
+        {
+            await Graph.Drives[_sp.DriveId].Items[doc.DriveItemId].Checkout.PostAsync();
+            await Graph.Drives[_sp.DriveId].Items[doc.DriveItemId].Checkin.PostAsync(
+                new Microsoft.Graph.Drives.Item.Items.Item.Checkin.CheckinPostRequestBody
+                {
+                    Comment = "JIT access probe"
+                });
+            return true;
+        }
+        catch (ODataError)
+        {
+            return false;
+        }
+    }
+
+    // ---- Version management -------------------------------------------------
+
+    public async Task<List<VersionInfo>> ListVersionsAsync(RegisteredDocument doc)
+    {
+        var response = await Graph.Drives[_sp.DriveId].Items[doc.DriveItemId].Versions.GetAsync();
+        var versions = response?.Value ?? [];
+        return versions
+            .Select((v, i) => new VersionInfo(
+                v.Id ?? "",
+                v.LastModifiedDateTime?.UtcDateTime,
+                v.LastModifiedBy?.User?.DisplayName,
+                v.Size,
+                i == 0))
+            .ToList();
+    }
+
+    public async Task RestoreVersionAsync(RegisteredDocument doc, string versionId)
+    {
+        await Graph.Drives[_sp.DriveId].Items[doc.DriveItemId]
+            .Versions[versionId].RestoreVersion.PostAsync();
+        _log.Info($"Version {versionId} of '{doc.Name}' restored as the current version (native SharePoint versioning).");
+    }
+
+    // ---- Reconciliation -----------------------------------------------------
+
+    /// <summary>
+    /// Compares actual SharePoint permissions against the app database and
+    /// removes any user grant the database doesn't know about. Self-healing:
+    /// a missed revocation cannot survive the next sweep.
+    /// </summary>
+    public async Task<List<string>> ReconcileAsync(bool dryRun)
+    {
+        var report = new List<string>();
+        var known = _registry.KnownPermissionIds();
+
+        foreach (var doc in _registry.Documents())
+        {
+            var response = await Graph.Drives[_sp.DriveId].Items[doc.DriveItemId].Permissions.GetAsync();
+            foreach (var perm in response?.Value ?? [])
+            {
+                if (perm.Id == null || known.Contains(perm.Id)) continue;
+                if (perm.InheritedFrom != null) continue;                       // library-level (should not exist in a sealed library)
+                if (perm.Roles?.Contains("owner") == true) continue;            // site owners / admins
+                var isUserGrant = perm.GrantedToV2?.User != null ||
+                                  perm.GrantedToIdentitiesV2?.Any(identity => identity.User != null) == true;
+                if (!isUserGrant) continue;                                     // app/site principals
+
+                var who = perm.GrantedToV2?.User?.DisplayName
+                          ?? perm.GrantedToIdentitiesV2?.FirstOrDefault()?.User?.DisplayName
+                          ?? "unknown user";
+                if (dryRun)
+                {
+                    report.Add($"WOULD REMOVE: '{doc.Name}' — {who} ({string.Join(",", perm.Roles ?? [])}) permission {perm.Id} is not in the app database.");
+                }
+                else
+                {
+                    await Graph.Drives[_sp.DriveId].Items[doc.DriveItemId].Permissions[perm.Id].DeleteAsync();
+                    report.Add($"REMOVED: '{doc.Name}' — {who} ({string.Join(",", perm.Roles ?? [])}) permission {perm.Id} was not in the app database.");
+                }
+            }
+        }
+
+        if (report.Count == 0)
+            report.Add("Clean: every SharePoint permission matches the app database.");
+        _log.Info($"Reconciliation ({(dryRun ? "preview" : "applied")}): {report.Count} finding(s).");
+        return report;
+    }
+
+    // ---- Links --------------------------------------------------------------
+
+    public static string DesktopEditLink(RegisteredDocument doc) => $"ms-word:ofe|u|{doc.WebUrl}";
+
+    public static string OnlineLink(RegisteredDocument doc, bool edit) =>
+        doc.WebUrl + (doc.WebUrl.Contains('?') ? "&" : "?") + (edit ? "web=1&action=edit" : "web=1&action=view");
+}

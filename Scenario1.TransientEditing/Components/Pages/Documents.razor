@@ -1,0 +1,224 @@
+@page "/documents"
+@attribute [Authorize]
+@implements IDisposable
+@inject TransientDocumentService DocService
+@inject SyncBackEngine Sync
+@inject NetworkShareService Share
+@inject DocumentStateStore Store
+@inject ActivityLog Log
+@inject Microsoft.Graph.GraphServiceClient Graph
+@inject AuthenticationStateProvider AuthProvider
+@inject IJSRuntime JS
+@inject Microsoft.Identity.Web.MicrosoftIdentityConsentAndConditionalAccessHandler ConsentHandler
+
+<PageTitle>Documents — Scenario 1</PageTitle>
+
+<h1>Serfis Documents</h1>
+<p class="text-muted">
+    Source: network share <code>@Share.RootPath</code>. Documents move to SharePoint only while being edited.
+</p>
+
+@if (error != null)
+{
+    <div class="alert alert-danger">@error</div>
+}
+
+<div class="row">
+    <div class="col-lg-8">
+        <div class="mb-2 d-flex gap-2">
+            <button class="btn btn-outline-primary btn-sm" @onclick="Refresh">Refresh</button>
+            <button class="btn btn-outline-secondary btn-sm" @onclick="RunSweep" disabled="@(busy != null)">
+                Run sweep now (simulate scheduled job)
+            </button>
+            <div class="input-group input-group-sm" style="max-width: 320px">
+                <input class="form-control" placeholder="New document name" @bind="newDocName" />
+                <button class="btn btn-outline-success" @onclick="CreateNew">Create on share</button>
+            </div>
+        </div>
+
+        <table class="table table-hover align-middle">
+            <thead>
+                <tr>
+                    <th>Document</th>
+                    <th>Status</th>
+                    <th style="width: 40%">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var f in files)
+                {
+                    var state = states.GetValueOrDefault(f.Name);
+                    <tr>
+                        <td>
+                            <strong>@f.Name</strong><br />
+                            <small class="text-muted">@(f.SizeBytes / 1024)&nbsp;KB · modified @f.ModifiedUtc.ToLocalTime().ToString("g")</small>
+                        </td>
+                        <td>
+                            @if (state == null)
+                            {
+                                <span class="badge bg-success">On network share</span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-primary">In SharePoint</span><br />
+                                <small class="text-muted">
+                                    by @state.CheckedOutBy<br />
+                                    last activity @state.LastActivityUtc.ToLocalTime().ToString("T")
+                                    @if (state.LastModifiedBy != null)
+                                    {
+                                        <text> (@state.LastModifiedBy)</text>
+                                    }
+                                </small>
+                            }
+                        </td>
+                        <td>
+                            @if (busy == f.Name)
+                            {
+                                <span class="spinner-border spinner-border-sm me-2"></span>
+                                <span>working…</span>
+                            }
+                            else if (state == null)
+                            {
+                                <button class="btn btn-primary btn-sm" @onclick="() => ViewEdit(f.Name, desktop: true)">
+                                    View/Edit (Word)
+                                </button>
+                                <button class="btn btn-outline-primary btn-sm" @onclick="() => ViewEdit(f.Name, desktop: false)">
+                                    View/Edit (Online)
+                                </button>
+                            }
+                            else
+                            {
+                                <a class="btn btn-primary btn-sm" href="@TransientDocumentService.DesktopEditLink(state)">Open in Word</a>
+                                <a class="btn btn-outline-primary btn-sm" href="@TransientDocumentService.OnlineEditLink(state)" target="_blank">Open Online</a>
+                                <button class="btn btn-outline-danger btn-sm" @onclick="() => ForceSync(state)">
+                                    Sync back now
+                                </button>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <div class="col-lg-4">
+        <h5>Activity feed</h5>
+        <div style="max-height: 60vh; overflow-y: auto">
+            @foreach (var entry in Log.Snapshot())
+            {
+                <div class="border-bottom py-1">
+                    <small class="text-muted">@entry.AtUtc.ToLocalTime().ToString("T")</small>
+                    <small class="@(entry.Level == "error" ? "text-danger" : entry.Level == "warn" ? "text-warning" : "")">
+                        @entry.Message
+                    </small>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<ShareFile> files = new();
+    private Dictionary<string, DocumentState> states = new();
+    private string? busy;
+    private string? error;
+    private string newDocName = "";
+
+    protected override void OnInitialized()
+    {
+        Log.Changed += OnLogChanged;
+        Refresh();
+    }
+
+    private void OnLogChanged() => _ = InvokeAsync(() =>
+    {
+        Refresh();
+        StateHasChanged();
+    });
+
+    private void Refresh()
+    {
+        files = Share.List();
+        states = Store.All().ToDictionary(s => s.FileName, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private async Task ViewEdit(string fileName, bool desktop)
+    {
+        busy = fileName;
+        error = null;
+        try
+        {
+            var auth = await AuthProvider.GetAuthenticationStateAsync();
+            var user = auth.User.Identity?.Name ?? "unknown user";
+            var state = await DocService.CheckoutAsync(fileName, user);
+            var url = desktop
+                ? TransientDocumentService.DesktopEditLink(state)
+                : TransientDocumentService.OnlineEditLink(state);
+            await JS.InvokeVoidAsync("launchUrl", url, !desktop);
+        }
+        catch (Exception ex)
+        {
+            try { ConsentHandler.HandleException(ex); }
+            catch { error = ex.Message; }
+        }
+        finally
+        {
+            busy = null;
+            Refresh();
+        }
+    }
+
+    private async Task ForceSync(DocumentState state)
+    {
+        busy = state.FileName;
+        error = null;
+        try
+        {
+            var result = await Sync.TrySyncBackAsync(Graph, state, force: true);
+            if (result == SyncResult.Locked)
+                error = "Document is still open in Word/Office Online — close it first (this is the lock probe protecting active editors).";
+        }
+        catch (Exception ex)
+        {
+            try { ConsentHandler.HandleException(ex); }
+            catch { error = ex.Message; }
+        }
+        finally
+        {
+            busy = null;
+            Refresh();
+        }
+    }
+
+    private async Task RunSweep()
+    {
+        busy = "*";
+        error = null;
+        try
+        {
+            foreach (var state in Store.All())
+                await Sync.TrySyncBackAsync(Graph, state, force: false);
+        }
+        catch (Exception ex)
+        {
+            try { ConsentHandler.HandleException(ex); }
+            catch { error = ex.Message; }
+        }
+        finally
+        {
+            busy = null;
+            Refresh();
+        }
+    }
+
+    private void CreateNew()
+    {
+        if (string.IsNullOrWhiteSpace(newDocName)) return;
+        Share.CreateNew(newDocName.Trim());
+        Log.Info($"Created '{newDocName.Trim()}' on the network share (as Serfis would).");
+        newDocName = "";
+        Refresh();
+    }
+
+    public void Dispose() => Log.Changed -= OnLogChanged;
+}
