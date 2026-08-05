@@ -9,10 +9,6 @@
 
 <h1>Manage Documents</h1>
 
-<button class="btn btn-primary btn-sm mb-3" @onclick="GoBack" disabled="@(pathSegments.Count == 0 || busy != null)">
-    <Icon Name="back" Size="12" /> Back
-</button>
-
 @if (error != null)
 {
     <div class="alert alert-danger py-2">@error</div>
@@ -312,13 +308,6 @@
     private async Task OpenFolder(LibraryDoc folder)
     {
         pathSegments.Add((folder.Name, folder.Id));
-        await LoadAsync();
-    }
-
-    private async Task GoBack()
-    {
-        if (pathSegments.Count == 0) return;
-        pathSegments.RemoveAt(pathSegments.Count - 1);
         await LoadAsync();
     }
 
