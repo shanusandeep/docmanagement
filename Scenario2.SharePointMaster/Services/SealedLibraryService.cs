@@ -279,9 +279,26 @@ public class SealedLibraryService
         _log.Info($"Version {versionId} of '{name}' restored as the current version.");
     }
 
-    /// <summary>Content of one specific version (opens/downloads as .docx).</summary>
-    public Task<Stream?> GetVersionContentAsync(string driveItemId, string versionId) =>
-        Graph.Drives[_sp.DriveId].Items[driveItemId].Versions[versionId].Content.GetAsync();
+    /// <summary>Current content of a document (raw download).</summary>
+    public Task<Stream?> GetContentAsync(string driveItemId) =>
+        Graph.Drives[_sp.DriveId].Items[driveItemId].Content.GetAsync();
+
+    /// <summary>
+    /// Content of one specific version. Graph refuses versions/{id}/content for
+    /// the CURRENT version ("You cannot get the content of the current version"),
+    /// so that case falls back to the item's own content stream.
+    /// </summary>
+    public async Task<Stream?> GetVersionContentAsync(string driveItemId, string versionId)
+    {
+        try
+        {
+            return await Graph.Drives[_sp.DriveId].Items[driveItemId].Versions[versionId].Content.GetAsync();
+        }
+        catch (ODataError ex) when (ex.Error?.Message?.Contains("current version", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            return await GetContentAsync(driveItemId);
+        }
+    }
 
     /// <summary>Current document converted to PDF by SharePoint (Graph format=pdf).</summary>
     public Task<Stream?> GetPdfAsync(string driveItemId) =>

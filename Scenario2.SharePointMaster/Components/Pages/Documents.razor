@@ -201,8 +201,9 @@
                                             <td>@v.ModifiedBy</td>
                                             <td>@((v.SizeBytes ?? 0) / 1024) KB</td>
                                             <td>
+                                                @* the current version's content must come from the item itself — Graph refuses versions/{id}/content for it *@
                                                 <a class="btn btn-outline-primary btn-sm @(sampleMode ? "disabled" : null)" title="Open this version"
-                                                   href="/api/doc/@versionDoc.Id/versions/@v.Id/content?name=@Uri.EscapeDataString(versionDoc.Name)"><Icon Name="open" /></a>
+                                                   href="@(v.IsCurrent ? $"/api/doc/{versionDoc.Id}/content?name={Uri.EscapeDataString(versionDoc.Name)}" : $"/api/doc/{versionDoc.Id}/versions/{v.Id}/content?name={Uri.EscapeDataString(versionDoc.Name)}")"><Icon Name="open" /></a>
                                                 @if (!v.IsCurrent)
                                                 {
                                                     <button class="btn btn-outline-secondary btn-sm" title="Make this version current" @onclick="() => Restore(v.Id)" disabled="@sampleMode">

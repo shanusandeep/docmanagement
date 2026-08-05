@@ -47,6 +47,16 @@ app.UseAntiforgery();
 
 app.MapControllers();
 
+// Raw download of the current document.
+app.MapGet("/api/doc/{itemId}/content",
+    async (string itemId, string? name, SealedLibraryService library) =>
+    {
+        var stream = await library.GetContentAsync(itemId);
+        if (stream == null) return Results.NotFound();
+        return Results.Stream(stream,
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document", name ?? $"{itemId}.docx");
+    }).RequireAuthorization();
+
 // Streams a specific version of a document (opens in Word as a .docx download).
 app.MapGet("/api/doc/{itemId}/versions/{versionId}/content",
     async (string itemId, string versionId, string? name, SealedLibraryService library) =>

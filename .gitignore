@@ -486,3 +486,6 @@ $RECYCLE.BIN/
 # Demo state
 App_Data/
 NetworkShare/
+
+# Legacy POC with embedded credentials - never push
+SharepointPOC/
