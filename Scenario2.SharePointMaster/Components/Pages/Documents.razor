@@ -21,10 +21,21 @@
     <div class="alert alert-danger">@error</div>
 }
 
-<div class="mb-3 d-flex gap-2">
+<div class="mb-3 d-flex gap-2 align-items-center">
     <input class="form-control form-control-sm" style="max-width: 260px" placeholder="New document name" @bind="newName" />
-    <button class="btn btn-primary btn-sm" @onclick="CreateDoc" disabled="@(busy != null || sampleMode)">Create</button>
-    <button class="btn btn-outline-primary btn-sm ms-auto" @onclick="LoadAsync" disabled="@(busy != null)">Refresh</button>
+    <button class="btn btn-primary btn-sm" title="Create new document" @onclick="CreateDoc" disabled="@(busy != null || sampleMode)"><Icon Name="plus" /></button>
+    <label class="btn btn-outline-primary btn-sm mb-0 @(busy != null || sampleMode ? "disabled" : null)" title="Upload document">
+        @if (busy == "upload")
+        {
+            <span class="spinner-border spinner-border-sm"></span>
+        }
+        else
+        {
+            <Icon Name="upload" />
+        }
+        <InputFile OnChange="OnUpload" style="display:none" disabled="@(busy != null || sampleMode)" />
+    </label>
+    <button class="btn btn-outline-primary btn-sm ms-auto" title="Refresh" @onclick="LoadAsync" disabled="@(busy != null)"><Icon Name="refresh" /></button>
 </div>
 
 <table class="table table-hover align-middle">
@@ -58,11 +69,11 @@
                     }
                     else
                     {
-                        <button class="btn btn-primary btn-sm" @onclick="() => ViewInWord(doc)" disabled="@sampleMode">View in Word</button>
-                        <button class="btn btn-outline-primary btn-sm" @onclick="() => ToggleVersions(doc)">Versions</button>
-                        <a class="btn btn-outline-primary btn-sm @(sampleMode ? "disabled" : null)"
-                           href="/api/doc/@doc.Id/pdf?name=@Uri.EscapeDataString(doc.Name)" target="_blank">Download PDF</a>
-                        <button class="btn btn-outline-danger btn-sm" @onclick="() => DeleteDoc(doc)" disabled="@sampleMode">Delete</button>
+                        <button class="btn btn-primary btn-sm" title="View/Edit in Word" @onclick="() => ViewInWord(doc)" disabled="@sampleMode"><Icon Name="word" /></button>
+                        <button class="btn btn-outline-primary btn-sm" title="Versions" @onclick="() => ToggleVersions(doc)"><Icon Name="history" /></button>
+                        <a class="btn btn-outline-primary btn-sm @(sampleMode ? "disabled" : null)" title="Download as PDF"
+                           href="/api/doc/@doc.Id/pdf?name=@Uri.EscapeDataString(doc.Name)" target="_blank"><Icon Name="pdf" /></a>
+                        <button class="btn btn-outline-danger btn-sm" title="Delete" @onclick="() => DeleteDoc(doc)" disabled="@sampleMode"><Icon Name="trash" /></button>
                     }
                 </td>
             </tr>
@@ -92,12 +103,12 @@
                                             <td>@v.ModifiedBy</td>
                                             <td>@((v.SizeBytes ?? 0) / 1024) KB</td>
                                             <td>
-                                                <a class="btn btn-outline-primary btn-sm @(sampleMode ? "disabled" : null)"
-                                                   href="/api/doc/@doc.Id/versions/@v.Id/content?name=@Uri.EscapeDataString(doc.Name)">Open</a>
+                                                <a class="btn btn-outline-primary btn-sm @(sampleMode ? "disabled" : null)" title="Open this version"
+                                                   href="/api/doc/@doc.Id/versions/@v.Id/content?name=@Uri.EscapeDataString(doc.Name)"><Icon Name="open" /></a>
                                                 @if (!v.IsCurrent)
                                                 {
-                                                    <button class="btn btn-outline-secondary btn-sm" @onclick="() => Restore(doc, v.Id)" disabled="@sampleMode">
-                                                        Make current
+                                                    <button class="btn btn-outline-secondary btn-sm" title="Make this version current" @onclick="() => Restore(doc, v.Id)" disabled="@sampleMode">
+                                                        <Icon Name="restore" />
                                                     </button>
                                                 }
                                             </td>
@@ -167,6 +178,20 @@
         {
             await Library.CreateDocumentAsync(newName.Trim(), "Case", await CurrentUpn());
             newName = "";
+            await LoadAsync();
+        }
+        catch (Exception ex) { error = ex.Message; }
+        finally { busy = null; }
+    }
+
+    private async Task OnUpload(InputFileChangeEventArgs e)
+    {
+        busy = "upload";
+        error = null;
+        try
+        {
+            await using var stream = e.File.OpenReadStream(maxAllowedSize: 100 * 1024 * 1024);
+            await Library.UploadAsync(e.File.Name, stream);
             await LoadAsync();
         }
         catch (Exception ex) { error = ex.Message; }

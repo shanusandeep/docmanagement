@@ -10,6 +10,26 @@ namespace Scenario2.SharePointMaster.Services;
 /// </summary>
 public class WordTemplateService
 {
+    /// <summary>Returns the same document with Track Changes forced on.</summary>
+    public byte[] EnsureTrackChanges(byte[] docxBytes)
+    {
+        using var ms = new MemoryStream();
+        ms.Write(docxBytes, 0, docxBytes.Length);
+        ms.Position = 0;
+        using (var doc = WordprocessingDocument.Open(ms, true))
+        {
+            if (doc.MainDocumentPart is { } main)
+            {
+                var settingsPart = main.DocumentSettingsPart ?? main.AddNewPart<DocumentSettingsPart>();
+                settingsPart.Settings ??= new Settings();
+                if (!settingsPart.Settings.Elements<TrackRevisions>().Any())
+                    settingsPart.Settings.PrependChild(new TrackRevisions());
+                settingsPart.Settings.Save();
+            }
+        }
+        return ms.ToArray();
+    }
+
     public byte[] CreateBlankDocx(string title)
     {
         using var ms = new MemoryStream();

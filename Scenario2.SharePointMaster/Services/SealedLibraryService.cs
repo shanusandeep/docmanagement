@@ -105,6 +105,46 @@ public class SealedLibraryService
             .ToList();
     }
 
+    /// <summary>
+    /// Uploads any file into the sealed library via a Graph upload session
+    /// (uniform code path regardless of size). .docx files get Track Changes
+    /// enforced before upload.
+    /// </summary>
+    public async Task<LibraryDoc> UploadAsync(string fileName, Stream content)
+    {
+        _log.Info($"Uploading '{fileName}' to the sealed library…");
+
+        using var buffer = new MemoryStream();
+        await content.CopyToAsync(buffer);
+        var bytes = buffer.ToArray();
+        if (fileName.EndsWith(".docx", StringComparison.OrdinalIgnoreCase))
+            bytes = _word.EnsureTrackChanges(bytes);
+
+        var sessionBody = new Microsoft.Graph.Drives.Item.Items.Item.CreateUploadSession.CreateUploadSessionPostRequestBody
+        {
+            Item = new DriveItemUploadableProperties
+            {
+                AdditionalData = new Dictionary<string, object>
+                {
+                    ["@microsoft.graph.conflictBehavior"] = "rename"
+                }
+            }
+        };
+        var session = await Graph.Drives[_sp.DriveId].Items["root"]
+            .ItemWithPath(fileName).CreateUploadSession.PostAsync(sessionBody)
+            ?? throw new InvalidOperationException("Could not create an upload session.");
+
+        using var uploadStream = new MemoryStream(bytes);
+        var uploadTask = new LargeFileUploadTask<DriveItem>(session, uploadStream, -1, Graph.RequestAdapter);
+        var result = await uploadTask.UploadAsync();
+        if (!result.UploadSucceeded || result.ItemResponse is not { } item)
+            throw new InvalidOperationException("Upload did not complete.");
+
+        _log.Info($"'{item.Name}' uploaded ({(bytes.Length + 1023) / 1024} KB){(fileName.EndsWith(".docx", StringComparison.OrdinalIgnoreCase) ? " with Track Changes enforced" : "")}. No user has access until granted.");
+        return new LibraryDoc(item.Id!, item.Name ?? fileName, item.Size,
+            item.LastModifiedDateTime?.UtcDateTime, item.LastModifiedBy?.User?.DisplayName, item.WebUrl ?? "");
+    }
+
     /// <summary>Finds (or creates) the registry row for a drive item so grants can attach to it.</summary>
     public RegisteredDocument EnsureRegistered(string driveItemId, string name, string webUrl)
     {
