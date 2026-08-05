@@ -55,12 +55,16 @@ public class TransientDocumentService
             .ItemWithPath(fileName).Content.PutAsync(ms)
             ?? throw new InvalidOperationException("Upload returned no driveItem.");
 
+        // webDavUrl (needed for the ms-word link) is only returned when selected
+        var withDav = await _graph.Drives[_sp.DriveId].Items[item.Id!]
+            .GetAsync(rc => rc.QueryParameters.Select = ["id", "webUrl", "webDavUrl"]);
+
         var state = new DocumentState
         {
             FileName = fileName,
             DriveItemId = item.Id!,
-            WebUrl = item.WebUrl ?? "",
-            WebDavUrl = item.WebDavUrl ?? "",
+            WebUrl = withDav?.WebUrl ?? item.WebUrl ?? "",
+            WebDavUrl = withDav?.WebDavUrl ?? "",
             CheckedOutBy = userName,
             CheckedOutAtUtc = DateTime.UtcNow,
             LastActivityUtc = DateTime.UtcNow

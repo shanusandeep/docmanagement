@@ -98,7 +98,14 @@ public class SealedLibraryService
     public async Task<List<LibraryDoc>> ListLibraryAsync(string? folderId = null)
     {
         var response = await Graph.Drives[_sp.DriveId].Items[folderId ?? "root"].Children
-            .GetAsync(rc => rc.QueryParameters.Orderby = ["name"]);
+            .GetAsync(rc =>
+            {
+                rc.QueryParameters.Orderby = ["name"];
+                // webDavUrl is omitted unless explicitly selected — it is required
+                // for desktop Office links (webUrl is only the Doc.aspx viewer)
+                rc.QueryParameters.Select =
+                    ["id", "name", "size", "lastModifiedDateTime", "lastModifiedBy", "webUrl", "webDavUrl", "folder", "file"];
+            });
         return (response?.Value ?? [])
             .Select(i => new LibraryDoc(
                 i.Id!, i.Name ?? "(unnamed)", i.Size,
