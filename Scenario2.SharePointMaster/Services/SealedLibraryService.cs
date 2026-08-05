@@ -91,15 +91,13 @@ public class SealedLibraryService
 
     // ---- Live library listing ----------------------------------------------
 
-    private Microsoft.Graph.Drives.Item.Items.Item.DriveItemItemRequestBuilder ItemAtPath(string folderPath) =>
-        string.IsNullOrEmpty(folderPath)
-            ? Graph.Drives[_sp.DriveId].Items["root"]
-            : Graph.Drives[_sp.DriveId].Items["root"].ItemWithPath(folderPath);
-
+    // NOTE: navigation is ID-based on purpose. ItemWithPath() returns a builder
+    // whose Children property is shadowed (not overridden) — upcasting it to the
+    // base DriveItemItemRequestBuilder silently lists the ROOT's children.
     /// <summary>Folders and documents straight from the SharePoint drive — no app-DB filter.</summary>
-    public async Task<List<LibraryDoc>> ListLibraryAsync(string folderPath = "")
+    public async Task<List<LibraryDoc>> ListLibraryAsync(string? folderId = null)
     {
-        var response = await ItemAtPath(folderPath).Children
+        var response = await Graph.Drives[_sp.DriveId].Items[folderId ?? "root"].Children
             .GetAsync(rc => rc.QueryParameters.Orderby = ["name"]);
         return (response?.Value ?? [])
             .Select(i => new LibraryDoc(
@@ -114,9 +112,9 @@ public class SealedLibraryService
             .ToList();
     }
 
-    public async Task<LibraryDoc> CreateFolderAsync(string parentPath, string name)
+    public async Task<LibraryDoc> CreateFolderAsync(string? parentFolderId, string name)
     {
-        var item = await ItemAtPath(parentPath).Children.PostAsync(new DriveItem
+        var item = await Graph.Drives[_sp.DriveId].Items[parentFolderId ?? "root"].Children.PostAsync(new DriveItem
         {
             Name = name,
             Folder = new Folder(),

@@ -103,11 +103,11 @@
             <span class="text-muted mx-1">/</span>
             @if (index == pathSegments.Count - 1)
             {
-                <span>@pathSegments[index]</span>
+                <span>@pathSegments[index].Name</span>
             }
             else
             {
-                <a href="" @onclick="@(() => NavigateTo(index))" @onclick:preventDefault>@pathSegments[index]</a>
+                <a href="" @onclick="@(() => NavigateTo(index))" @onclick:preventDefault>@pathSegments[index].Name</a>
             }
         }
         @if (sampleMode)
@@ -137,7 +137,7 @@
                     <td>
                         @if (item.IsFolder)
                         {
-                            <a href="" class="fw-semibold" @onclick="@(() => OpenFolder(item.Name))" @onclick:preventDefault>
+                            <a href="" class="fw-semibold" @onclick="@(() => OpenFolder(item))" @onclick:preventDefault>
                                 <Icon Name="folder" Size="14" /> @item.Name
                             </a>
                         }
@@ -211,7 +211,7 @@
 
 @code {
     private List<LibraryDoc> items = new();
-    private readonly List<string> pathSegments = new();
+    private readonly List<(string Name, string Id)> pathSegments = new();
     private string? selectedId;
     private string? busy;
     private string? error;
@@ -222,7 +222,8 @@
     private List<VersionInfo>? versions;
     private bool sampleMode;
 
-    private string CurrentPath => string.Join('/', pathSegments);
+    private string CurrentPath => string.Join('/', pathSegments.Select(s => s.Name));
+    private string? CurrentFolderId => pathSegments.Count == 0 ? null : pathSegments[^1].Id;
     private LibraryDoc? Selected => items.FirstOrDefault(i => i.Id == selectedId);
     private LibraryDoc? SelectedFile => Selected is { IsFolder: false } f ? f : null;
 
@@ -272,16 +273,16 @@
         try
         {
             sampleMode = false;
-            items = await Library.ListLibraryAsync(CurrentPath);
+            items = await Library.ListLibraryAsync(CurrentFolderId);
         }
         catch (Exception ex) { error = ex.Message; }
     }
 
     private void Select(string id, bool isChecked) => selectedId = isChecked ? id : null;
 
-    private async Task OpenFolder(string name)
+    private async Task OpenFolder(LibraryDoc folder)
     {
-        pathSegments.Add(name);
+        pathSegments.Add((folder.Name, folder.Id));
         await LoadAsync();
     }
 
@@ -324,7 +325,7 @@
                     await Library.CreateDocumentAsync(value, "Case", upn, CurrentPath);
                     break;
                 case "newfolder":
-                    await Library.CreateFolderAsync(CurrentPath, value);
+                    await Library.CreateFolderAsync(CurrentFolderId, value);
                     break;
                 case "rename" when Selected is { } sel:
                     await Library.RenameAsync(sel.Id, sel.Name, value);
