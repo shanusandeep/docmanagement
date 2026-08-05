@@ -10,7 +10,10 @@ var builder = WebApplication.CreateBuilder(args);
 // database and projects it into SharePoint as just-in-time item permissions.
 // The library custodian is the app-only service principal (SealedLibraryService).
 builder.Services.AddAuthentication(OpenIdConnectDefaults.AuthenticationScheme)
-    .AddMicrosoftIdentityWebApp(builder.Configuration.GetSection("AzureAd"));
+    .AddMicrosoftIdentityWebApp(builder.Configuration.GetSection("AzureAd"))
+    // auth-code flow (avoids needing the legacy id_token/implicit checkbox in Entra)
+    .EnableTokenAcquisitionToCallDownstreamApi(["User.Read"])
+    .AddInMemoryTokenCaches();
 
 builder.Services.AddControllersWithViews().AddMicrosoftIdentityUI();
 builder.Services.AddAuthorization();
