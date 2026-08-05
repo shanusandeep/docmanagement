@@ -80,22 +80,30 @@ h4, h5 {
     border-bottom: 2px solid var(--scc-navy);
 }
 
-/* SCC wordmark in the sidebar — echoes the official stacked logo */
-.scc-wordmark {
+/* SCC · SERFIS stacked logo — matches the Serfis application header */
+.scc-serfis-logo {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
     color: #fff;
-    font-weight: 800;
-    font-size: 1.35rem;
-    letter-spacing: 0.12em;
     line-height: 1;
-    border-top: 2px solid #fff;
-    border-bottom: 2px solid #fff;
-    padding: 0.15rem 0.1rem;
 }
 
-.scc-logo + span, .scc-wordmark + span {
-    font-size: 0.95rem;
-    font-weight: 600;
-    line-height: 1.2;
+.scc-serfis-scc {
+    font-weight: 800;
+    font-style: italic;
+    font-size: 1.45rem;
+    letter-spacing: 0.03em;
+    border-bottom: 3px solid #fff;
+    padding: 0 0.05em 0.12em 0.05em;
+}
+
+.scc-serfis-name {
+    font-weight: 700;
+    font-size: 0.72rem;
+    letter-spacing: 0.24em;
+    margin-top: 0.22rem;
+    padding-left: 0.24em; /* optical centering against the letterspacing tail */
 }
 
 .scc-brand-sub {
