@@ -421,7 +421,7 @@
         {
             var registered = Library.EnsureRegistered(doc.Id, doc.Name, doc.WebUrl);
             await Library.GrantAsync(registered, await CurrentUpn(), "write");
-            await JS.InvokeVoidAsync("launchUrl", $"ms-word:ofe|u|{doc.WebUrl}", false);
+            await JS.InvokeVoidAsync("launchUrl", SealedLibraryService.DesktopEditLink(doc), false);
         }
         catch (Exception ex) { error = ex.Message; }
         finally { busy = null; }

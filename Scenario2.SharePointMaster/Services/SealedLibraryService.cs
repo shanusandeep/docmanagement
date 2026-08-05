@@ -106,7 +106,8 @@ public class SealedLibraryService
                 i.LastModifiedBy?.User?.DisplayName,
                 i.WebUrl ?? "",
                 IsFolder: i.Folder != null,
-                ChildCount: i.Folder?.ChildCount))
+                ChildCount: i.Folder?.ChildCount,
+                WebDavUrl: i.WebDavUrl))
             .OrderByDescending(d => d.IsFolder)
             .ThenBy(d => d.Name)
             .ToList();
@@ -187,7 +188,8 @@ public class SealedLibraryService
 
         _log.Info($"'{item.Name}' uploaded ({(bytes.Length + 1023) / 1024} KB){(fileName.EndsWith(".docx", StringComparison.OrdinalIgnoreCase) ? " with Track Changes enforced" : "")}. No user has access until granted.");
         return new LibraryDoc(item.Id!, item.Name ?? fileName, item.Size,
-            item.LastModifiedDateTime?.UtcDateTime, item.LastModifiedBy?.User?.DisplayName, item.WebUrl ?? "");
+            item.LastModifiedDateTime?.UtcDateTime, item.LastModifiedBy?.User?.DisplayName, item.WebUrl ?? "",
+            WebDavUrl: item.WebDavUrl);
     }
 
     /// <summary>
@@ -438,8 +440,15 @@ public class SealedLibraryService
 
     // ---- Links --------------------------------------------------------------
 
-    public static string DesktopEditLink(RegisteredDocument doc) => $"ms-word:ofe|u|{doc.WebUrl}";
+    /// <summary>Desktop Word must get the direct file path (webDavUrl), never the Doc.aspx viewer URL.</summary>
+    public static string DesktopEditLink(LibraryDoc doc) =>
+        $"ms-word:ofe|u|{(string.IsNullOrEmpty(doc.WebDavUrl) ? doc.WebUrl : doc.WebDavUrl)}";
 
-    public static string OnlineLink(RegisteredDocument doc, bool edit) =>
-        doc.WebUrl + (doc.WebUrl.Contains('?') ? "&" : "?") + (edit ? "web=1&action=edit" : "web=1&action=view");
+    public static string OnlineLink(LibraryDoc doc, bool edit)
+    {
+        var action = edit ? "action=edit" : "action=view";
+        return doc.WebUrl.Contains("action=default")
+            ? doc.WebUrl.Replace("action=default", action)
+            : doc.WebUrl + (doc.WebUrl.Contains('?') ? "&" : "?") + "web=1&" + action;
+    }
 }

@@ -20,6 +20,8 @@ public class DocumentState
     public string FileName { get; set; } = "";
     public string DriveItemId { get; set; } = "";
     public string WebUrl { get; set; } = "";
+    /// <summary>Direct file path — required for ms-word: links (WebUrl is the Doc.aspx viewer).</summary>
+    public string WebDavUrl { get; set; } = "";
     public string CheckedOutBy { get; set; } = "";
     public DateTime CheckedOutAtUtc { get; set; }
     public DateTime LastActivityUtc { get; set; }

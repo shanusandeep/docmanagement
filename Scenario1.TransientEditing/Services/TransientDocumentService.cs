@@ -60,6 +60,7 @@ public class TransientDocumentService
             FileName = fileName,
             DriveItemId = item.Id!,
             WebUrl = item.WebUrl ?? "",
+            WebDavUrl = item.WebDavUrl ?? "",
             CheckedOutBy = userName,
             CheckedOutAtUtc = DateTime.UtcNow,
             LastActivityUtc = DateTime.UtcNow
@@ -69,8 +70,12 @@ public class TransientDocumentService
         return state;
     }
 
-    public static string DesktopEditLink(DocumentState state) => $"ms-word:ofe|u|{state.WebUrl}";
+    /// <summary>Desktop Word needs the direct file path (webDavUrl), not the Doc.aspx viewer URL.</summary>
+    public static string DesktopEditLink(DocumentState state) =>
+        $"ms-word:ofe|u|{(string.IsNullOrEmpty(state.WebDavUrl) ? state.WebUrl : state.WebDavUrl)}";
 
     public static string OnlineEditLink(DocumentState state) =>
-        state.WebUrl + (state.WebUrl.Contains('?') ? "&" : "?") + "web=1&action=edit";
+        state.WebUrl.Contains("action=default")
+            ? state.WebUrl.Replace("action=default", "action=edit")
+            : state.WebUrl + (state.WebUrl.Contains('?') ? "&" : "?") + "web=1&action=edit";
 }

@@ -41,6 +41,10 @@ public class AccessGrant
 
 public record VersionInfo(string Id, DateTime? ModifiedUtc, string? ModifiedBy, long? SizeBytes, bool IsCurrent);
 
-/// <summary>A document or folder as listed live from the SharePoint drive.</summary>
+/// <summary>
+/// A document or folder as listed live from the SharePoint drive.
+/// WebUrl is the browser (Doc.aspx viewer) link; WebDavUrl is the direct file
+/// path — desktop Office protocol links (ms-word:ofe|u|…) must use WebDavUrl.
+/// </summary>
 public record LibraryDoc(string Id, string Name, long? SizeBytes, DateTime? ModifiedUtc, string? ModifiedBy, string WebUrl,
-    bool IsFolder = false, long? ChildCount = null);
+    bool IsFolder = false, long? ChildCount = null, string? WebDavUrl = null);
