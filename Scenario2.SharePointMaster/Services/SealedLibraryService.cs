@@ -53,13 +53,13 @@ public class SealedLibraryService
 
     // ---- Document lifecycle -------------------------------------------------
 
-    public async Task<RegisteredDocument> CreateDocumentAsync(string name, string caseNumber, string createdBy, string folderPath = "")
+    public async Task<RegisteredDocument> CreateDocumentAsync(string name, string createdBy, string folderPath = "")
     {
         if (!name.EndsWith(".docx", StringComparison.OrdinalIgnoreCase)) name += ".docx";
 
         _log.Info($"Creating '{name}' in the sealed library (as the service principal; Track Changes enforced)…");
 
-        var bytes = _word.CreateBlankDocx($"{caseNumber} — {Path.GetFileNameWithoutExtension(name)}");
+        var bytes = _word.CreateBlankDocx(Path.GetFileNameWithoutExtension(name));
         using var ms = new MemoryStream(bytes);
         var target = string.IsNullOrEmpty(folderPath) ? name : $"{folderPath}/{name}";
         var item = await Graph.Drives[_sp.DriveId].Items["root"]
@@ -69,7 +69,6 @@ public class SealedLibraryService
         var doc = new RegisteredDocument
         {
             Name = name,
-            CaseNumber = caseNumber,
             DriveItemId = item.Id!,
             WebUrl = item.WebUrl ?? "",
             CreatedBy = createdBy,
@@ -243,7 +242,6 @@ public class SealedLibraryService
         doc = new RegisteredDocument
         {
             Name = name,
-            CaseNumber = "-",
             DriveItemId = driveItemId,
             WebUrl = webUrl,
             CreatedBy = "(existing SharePoint document)",

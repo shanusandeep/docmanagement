@@ -340,7 +340,7 @@
             switch (mode)
             {
                 case "newdoc":
-                    await Library.CreateDocumentAsync(value, "Case", upn, CurrentPath);
+                    await Library.CreateDocumentAsync(value, upn, CurrentPath);
                     break;
                 case "newfolder":
                     await Library.CreateFolderAsync(CurrentFolderId, value);

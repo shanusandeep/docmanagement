@@ -28,9 +28,9 @@ public class NetworkShareService
         if (Directory.EnumerateFiles(_root, "*.docx").Any()) return;
         foreach (var name in new[]
                  {
-                     "Case-1001 Investigation Report",
-                     "Case-1002 Interview Notes",
-                     "Case-1003 Evidence Summary"
+                     "Investigation Report",
+                     "Interview Notes",
+                     "Evidence Summary"
                  })
         {
             File.WriteAllBytes(Path.Combine(_root, name + ".docx"),

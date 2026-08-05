@@ -17,7 +17,6 @@ public class RegisteredDocument
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public string Name { get; set; } = "";
-    public string CaseNumber { get; set; } = "";
     public string DriveItemId { get; set; } = "";
     public string WebUrl { get; set; } = "";
     public string CreatedBy { get; set; } = "";

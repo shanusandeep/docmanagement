@@ -39,7 +39,7 @@ public class DocumentRegistry
 
     public List<RegisteredDocument> Documents()
     {
-        lock (_lock) return _data.Documents.OrderBy(d => d.CaseNumber).ThenBy(d => d.Name).ToList();
+        lock (_lock) return _data.Documents.OrderBy(d => d.Name).ToList();
     }
 
     public RegisteredDocument? GetDocument(Guid id)
