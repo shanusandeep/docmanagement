@@ -53,7 +53,7 @@ public class SealedLibraryService
 
     // ---- Document lifecycle -------------------------------------------------
 
-    public async Task<RegisteredDocument> CreateDocumentAsync(string name, string caseNumber, string createdBy)
+    public async Task<RegisteredDocument> CreateDocumentAsync(string name, string caseNumber, string createdBy, string folderPath = "")
     {
         if (!name.EndsWith(".docx", StringComparison.OrdinalIgnoreCase)) name += ".docx";
 
@@ -61,8 +61,9 @@ public class SealedLibraryService
 
         var bytes = _word.CreateBlankDocx($"{caseNumber} — {Path.GetFileNameWithoutExtension(name)}");
         using var ms = new MemoryStream(bytes);
+        var target = string.IsNullOrEmpty(folderPath) ? name : $"{folderPath}/{name}";
         var item = await Graph.Drives[_sp.DriveId].Items["root"]
-            .ItemWithPath(name).Content.PutAsync(ms)
+            .ItemWithPath(target).Content.PutAsync(ms)
             ?? throw new InvalidOperationException("Upload returned no driveItem.");
 
         var doc = new RegisteredDocument
@@ -90,19 +91,64 @@ public class SealedLibraryService
 
     // ---- Live library listing ----------------------------------------------
 
-    /// <summary>Documents straight from the SharePoint drive — no app-DB filter.</summary>
-    public async Task<List<LibraryDoc>> ListLibraryAsync()
+    private Microsoft.Graph.Drives.Item.Items.Item.DriveItemItemRequestBuilder ItemAtPath(string folderPath) =>
+        string.IsNullOrEmpty(folderPath)
+            ? Graph.Drives[_sp.DriveId].Items["root"]
+            : Graph.Drives[_sp.DriveId].Items["root"].ItemWithPath(folderPath);
+
+    /// <summary>Folders and documents straight from the SharePoint drive — no app-DB filter.</summary>
+    public async Task<List<LibraryDoc>> ListLibraryAsync(string folderPath = "")
     {
-        var response = await Graph.Drives[_sp.DriveId].Items["root"].Children
+        var response = await ItemAtPath(folderPath).Children
             .GetAsync(rc => rc.QueryParameters.Orderby = ["name"]);
         return (response?.Value ?? [])
-            .Where(i => i.File != null)
             .Select(i => new LibraryDoc(
                 i.Id!, i.Name ?? "(unnamed)", i.Size,
                 i.LastModifiedDateTime?.UtcDateTime,
                 i.LastModifiedBy?.User?.DisplayName,
-                i.WebUrl ?? ""))
+                i.WebUrl ?? "",
+                IsFolder: i.Folder != null,
+                ChildCount: i.Folder?.ChildCount))
+            .OrderByDescending(d => d.IsFolder)
+            .ThenBy(d => d.Name)
             .ToList();
+    }
+
+    public async Task<LibraryDoc> CreateFolderAsync(string parentPath, string name)
+    {
+        var item = await ItemAtPath(parentPath).Children.PostAsync(new DriveItem
+        {
+            Name = name,
+            Folder = new Folder(),
+            AdditionalData = new Dictionary<string, object> { ["@microsoft.graph.conflictBehavior"] = "fail" }
+        }) ?? throw new InvalidOperationException("Folder creation returned nothing.");
+        _log.Info($"Folder '{name}' created.");
+        return new LibraryDoc(item.Id!, item.Name ?? name, null, item.LastModifiedDateTime?.UtcDateTime,
+            item.LastModifiedBy?.User?.DisplayName, item.WebUrl ?? "", IsFolder: true, ChildCount: 0);
+    }
+
+    public async Task RenameAsync(string itemId, string oldName, string newName)
+    {
+        await Graph.Drives[_sp.DriveId].Items[itemId].PatchAsync(new DriveItem { Name = newName });
+        _log.Info($"'{oldName}' renamed to '{newName}'.");
+    }
+
+    /// <summary>
+    /// Deletes a folder only when it is empty. Non-empty folders are refused —
+    /// the caller shows the warning to the user.
+    /// </summary>
+    public async Task<bool> TryDeleteFolderAsync(string itemId, string name)
+    {
+        var item = await Graph.Drives[_sp.DriveId].Items[itemId].GetAsync();
+        var count = item?.Folder?.ChildCount ?? 0;
+        if (count > 0)
+        {
+            _log.Warn($"Folder '{name}' not deleted — it still contains {count} item(s).");
+            return false;
+        }
+        await Graph.Drives[_sp.DriveId].Items[itemId].DeleteAsync();
+        _log.Info($"Empty folder '{name}' deleted.");
+        return true;
     }
 
     /// <summary>
@@ -110,8 +156,9 @@ public class SealedLibraryService
     /// (uniform code path regardless of size). .docx files get Track Changes
     /// enforced before upload.
     /// </summary>
-    public async Task<LibraryDoc> UploadAsync(string fileName, Stream content)
+    public async Task<LibraryDoc> UploadAsync(string fileName, Stream content, string folderPath = "")
     {
+        var targetPath = string.IsNullOrEmpty(folderPath) ? fileName : $"{folderPath}/{fileName}";
         _log.Info($"Uploading '{fileName}' to the sealed library…");
 
         using var buffer = new MemoryStream();
@@ -131,7 +178,7 @@ public class SealedLibraryService
             }
         };
         var session = await Graph.Drives[_sp.DriveId].Items["root"]
-            .ItemWithPath(fileName).CreateUploadSession.PostAsync(sessionBody)
+            .ItemWithPath(targetPath).CreateUploadSession.PostAsync(sessionBody)
             ?? throw new InvalidOperationException("Could not create an upload session.");
 
         using var uploadStream = new MemoryStream(bytes);

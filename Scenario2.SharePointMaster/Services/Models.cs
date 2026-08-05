@@ -41,5 +41,6 @@ public class AccessGrant
 
 public record VersionInfo(string Id, DateTime? ModifiedUtc, string? ModifiedBy, long? SizeBytes, bool IsCurrent);
 
-/// <summary>A document as listed live from the SharePoint drive.</summary>
-public record LibraryDoc(string Id, string Name, long? SizeBytes, DateTime? ModifiedUtc, string? ModifiedBy, string WebUrl);
+/// <summary>A document or folder as listed live from the SharePoint drive.</summary>
+public record LibraryDoc(string Id, string Name, long? SizeBytes, DateTime? ModifiedUtc, string? ModifiedBy, string WebUrl,
+    bool IsFolder = false, long? ChildCount = null);

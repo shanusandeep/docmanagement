@@ -5,150 +5,234 @@
 @inject AuthenticationStateProvider AuthProvider
 @inject IJSRuntime JS
 
-<PageTitle>Documents — SERFIS</PageTitle>
+<PageTitle>Manage Documents — SERFIS</PageTitle>
 
-<h1>Case Documents</h1>
-<p class="text-muted">
-    Listed live from the SharePoint library.
-    @if (sampleMode)
-    {
-        <span class="badge bg-secondary">sample data — SharePoint not configured yet</span>
-    }
-</p>
+<h1>Manage Documents</h1>
+
+<button class="btn btn-primary btn-sm mb-3" @onclick="GoBack" disabled="@(pathSegments.Count == 0 || busy != null)">
+    <Icon Name="back" Size="12" /> Back
+</button>
 
 @if (error != null)
 {
-    <div class="alert alert-danger">@error</div>
+    <div class="alert alert-danger py-2">@error</div>
+}
+@if (warning != null)
+{
+    <div class="alert alert-warning py-2">@warning</div>
 }
 
-<div class="mb-3 d-flex gap-2 align-items-center">
-    <input class="form-control form-control-sm" style="max-width: 260px" placeholder="New document name" @bind="newName" />
-    <button class="btn btn-primary btn-sm" title="Create new document" @onclick="CreateDoc" disabled="@(busy != null || sampleMode)"><Icon Name="plus" /></button>
-    <label class="btn btn-outline-primary btn-sm mb-0 @(busy != null || sampleMode ? "disabled" : null)" title="Upload document">
-        @if (busy == "upload")
+<div class="sp-card p-2">
+
+    <div class="sp-toolbar d-flex flex-wrap align-items-center gap-1 border rounded px-2 py-1 mb-2 bg-white">
+        <label class="btn btn-sm mb-0 @(busy != null ? "disabled" : null)" title="Upload a file into the current folder">
+            @if (busy == "upload")
+            {
+                <span class="spinner-border spinner-border-sm"></span>
+            }
+            else
+            {
+                <Icon Name="upload" Size="14" />
+            }
+            <span class="ms-1">Upload file</span>
+            <InputFile OnChange="OnUpload" style="display:none" disabled="@(busy != null)" />
+        </label>
+        <button class="btn btn-sm" title="Create a new Word document here" @onclick="@(() => StartPrompt("newdoc"))" disabled="@(busy != null)">
+            <Icon Name="plus" Size="14" /> <span class="ms-1">New document</span>
+        </button>
+        <button class="btn btn-sm" title="Create a new folder here" @onclick="@(() => StartPrompt("newfolder"))" disabled="@(busy != null)">
+            <Icon Name="folder" Size="14" /> <span class="ms-1">New folder</span>
+        </button>
+        <button class="btn btn-sm" title="Open the selected document in Word" @onclick="ViewSelected" disabled="@(SelectedFile == null || busy != null)">
+            <Icon Name="word" Size="14" /> <span class="ms-1">View</span>
+        </button>
+        <button class="btn btn-sm" title="Version history of the selected document" @onclick="ToggleVersions" disabled="@(SelectedFile == null || busy != null)">
+            <Icon Name="history" Size="14" /> <span class="ms-1">Versions</span>
+        </button>
+        @if (SelectedFile != null)
         {
-            <span class="spinner-border spinner-border-sm"></span>
+            <a class="btn btn-sm" title="Download the selected document as PDF"
+               href="/api/doc/@SelectedFile.Id/pdf?name=@Uri.EscapeDataString(SelectedFile.Name)" target="_blank">
+                <Icon Name="pdf" Size="14" /> <span class="ms-1">PDF</span>
+            </a>
         }
         else
         {
-            <Icon Name="upload" />
+            <button class="btn btn-sm" disabled><Icon Name="pdf" Size="14" /> <span class="ms-1">PDF</span></button>
         }
-        <InputFile OnChange="OnUpload" style="display:none" disabled="@(busy != null || sampleMode)" />
-    </label>
-    <button class="btn btn-outline-primary btn-sm ms-auto" title="Refresh" @onclick="LoadAsync" disabled="@(busy != null)"><Icon Name="refresh" /></button>
-</div>
+        <button class="btn btn-sm" title="Rename the selected item" @onclick="@(() => StartPrompt("rename"))" disabled="@(Selected == null || busy != null)">
+            <Icon Name="pencil" Size="14" /> <span class="ms-1">Rename</span>
+        </button>
+        <button class="btn btn-sm text-danger" title="Delete the selected item" @onclick="DeleteSelected" disabled="@(Selected == null || busy != null)">
+            <Icon Name="trash" Size="14" /> <span class="ms-1">Delete</span>
+        </button>
+        <button class="btn btn-sm ms-auto" title="Refresh" @onclick="LoadAsync" disabled="@(busy != null)">
+            <Icon Name="refresh" Size="14" />
+        </button>
+    </div>
 
-<table class="table table-hover align-middle">
-    <thead>
-        <tr>
-            <th>Document</th>
-            <th>Modified</th>
-            <th style="width: 42%">Actions</th>
-        </tr>
-    </thead>
-    <tbody>
-        @foreach (var doc in docs)
+    @if (promptMode != null)
+    {
+        <div class="d-flex gap-2 align-items-center border rounded px-2 py-2 mb-2 bg-white">
+            <span class="text-muted small">@PromptLabel</span>
+            <input class="form-control form-control-sm" style="max-width: 320px" @bind="promptValue" @bind:event="oninput" />
+            <button class="btn btn-primary btn-sm" @onclick="ConfirmPrompt" disabled="@(string.IsNullOrWhiteSpace(promptValue))">OK</button>
+            <button class="btn btn-outline-secondary btn-sm" @onclick="@(() => promptMode = null)">Cancel</button>
+        </div>
+    }
+
+    <div class="mb-2">
+        <span class="sp-crumb"><Icon Name="home" Size="13" /> <a href="" @onclick="@(() => NavigateTo(-1))" @onclick:preventDefault>Files</a></span>
+        @for (var i = 0; i < pathSegments.Count; i++)
         {
-            <tr>
-                <td>
-                    <strong>@doc.Name</strong>
-                    @foreach (var g in GrantsFor(doc.Id))
-                    {
-                        <span class="badge @(g.Role == "write" ? "bg-primary" : "bg-info") ms-1">@g.UserUpn</span>
-                    }
-                </td>
-                <td>
-                    <small>@doc.ModifiedUtc?.ToLocalTime().ToString("g")<br />
-                        <span class="text-muted">@doc.ModifiedBy · @((doc.SizeBytes ?? 0) / 1024) KB</span></small>
-                </td>
-                <td>
-                    @if (busy == doc.Id)
-                    {
-                        <span class="spinner-border spinner-border-sm me-2"></span>
-                        <span>working…</span>
-                    }
-                    else
-                    {
-                        <button class="btn btn-primary btn-sm" title="View/Edit in Word" @onclick="() => ViewInWord(doc)" disabled="@sampleMode"><Icon Name="word" /></button>
-                        <button class="btn btn-outline-primary btn-sm" title="Versions" @onclick="() => ToggleVersions(doc)"><Icon Name="history" /></button>
-                        <a class="btn btn-outline-primary btn-sm @(sampleMode ? "disabled" : null)" title="Download as PDF"
-                           href="/api/doc/@doc.Id/pdf?name=@Uri.EscapeDataString(doc.Name)" target="_blank"><Icon Name="pdf" /></a>
-                        <button class="btn btn-outline-danger btn-sm" title="Delete" @onclick="() => DeleteDoc(doc)" disabled="@sampleMode"><Icon Name="trash" /></button>
-                    }
-                </td>
-            </tr>
-            @if (versionsFor == doc.Id)
+            var index = i;
+            <span class="text-muted mx-1">/</span>
+            @if (index == pathSegments.Count - 1)
             {
-                <tr>
-                    <td colspan="3" class="bg-light">
-                        <strong>Versions</strong>
-                        @if (versions == null)
+                <span>@pathSegments[index]</span>
+            }
+            else
+            {
+                <a href="" @onclick="@(() => NavigateTo(index))" @onclick:preventDefault>@pathSegments[index]</a>
+            }
+        }
+        @if (sampleMode)
+        {
+            <span class="badge bg-secondary ms-2">sample data — SharePoint not configured yet</span>
+        }
+    </div>
+
+    <table class="table table-striped sp-table align-middle mb-0">
+        <thead>
+            <tr>
+                <th style="width: 36px"></th>
+                <th>File name</th>
+                <th>Description</th>
+                <th>Date modified</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var item in items)
+            {
+                <tr class="@(selectedId == item.Id ? "table-active" : null)">
+                    <td>
+                        <input class="form-check-input" type="checkbox"
+                               checked="@(selectedId == item.Id)"
+                               @onchange="@(e => Select(item.Id, (bool)e.Value!))" />
+                    </td>
+                    <td>
+                        @if (item.IsFolder)
                         {
-                            <div><span class="spinner-border spinner-border-sm"></span> loading…</div>
-                        }
-                        else if (versions.Count == 0)
-                        {
-                            <div class="text-muted">No versions yet.</div>
+                            <a href="" class="fw-semibold" @onclick="@(() => OpenFolder(item.Name))" @onclick:preventDefault>
+                                <Icon Name="folder" Size="14" /> @item.Name
+                            </a>
                         }
                         else
                         {
-                            <table class="table table-sm mb-0" style="max-width: 760px">
-                                <thead><tr><th>#</th><th>Modified</th><th>By</th><th>Size</th><th></th></tr></thead>
-                                <tbody>
-                                    @foreach (var v in versions)
-                                    {
-                                        <tr>
-                                            <td><strong>v@(v.Id)</strong> @(v.IsCurrent ? "· current" : "")</td>
-                                            <td>@v.ModifiedUtc?.ToLocalTime().ToString("g")</td>
-                                            <td>@v.ModifiedBy</td>
-                                            <td>@((v.SizeBytes ?? 0) / 1024) KB</td>
-                                            <td>
-                                                <a class="btn btn-outline-primary btn-sm @(sampleMode ? "disabled" : null)" title="Open this version"
-                                                   href="/api/doc/@doc.Id/versions/@v.Id/content?name=@Uri.EscapeDataString(doc.Name)"><Icon Name="open" /></a>
-                                                @if (!v.IsCurrent)
-                                                {
-                                                    <button class="btn btn-outline-secondary btn-sm" title="Make this version current" @onclick="() => Restore(doc, v.Id)" disabled="@sampleMode">
-                                                        <Icon Name="restore" />
-                                                    </button>
-                                                }
-                                            </td>
-                                        </tr>
-                                    }
-                                </tbody>
-                            </table>
+                            <span><Icon Name="file" Size="14" /> @item.Name</span>
                         }
                     </td>
+                    <td class="text-muted">
+                        @if (item.IsFolder)
+                        {
+                            <text>@(item.ChildCount ?? 0) item(s)</text>
+                        }
+                        else
+                        {
+                            <text>@((item.SizeBytes ?? 0) / 1024) KB · @item.ModifiedBy</text>
+                        }
+                    </td>
+                    <td>@item.ModifiedUtc?.ToLocalTime().ToString("g")</td>
                 </tr>
             }
-        }
-    </tbody>
-</table>
+            @if (items.Count == 0)
+            {
+                <tr><td colspan="4" class="text-muted py-3">This folder is empty.</td></tr>
+            }
+        </tbody>
+    </table>
+
+    @if (versionsFor != null && SelectedFile != null)
+    {
+        <div class="border-top p-2 bg-light">
+            <strong>Versions — @SelectedFile.Name</strong>
+            @if (versions == null)
+            {
+                <div><span class="spinner-border spinner-border-sm"></span> loading…</div>
+            }
+            else if (versions.Count == 0)
+            {
+                <div class="text-muted">No versions yet.</div>
+            }
+            else
+            {
+                <table class="table table-sm mb-0" style="max-width: 760px">
+                    <thead><tr><th>#</th><th>Modified</th><th>By</th><th>Size</th><th></th></tr></thead>
+                    <tbody>
+                        @foreach (var v in versions)
+                        {
+                            <tr>
+                                <td><strong>v@(v.Id)</strong> @(v.IsCurrent ? "· current" : "")</td>
+                                <td>@v.ModifiedUtc?.ToLocalTime().ToString("g")</td>
+                                <td>@v.ModifiedBy</td>
+                                <td>@((v.SizeBytes ?? 0) / 1024) KB</td>
+                                <td>
+                                    <a class="btn btn-outline-primary btn-sm @(sampleMode ? "disabled" : null)" title="Open this version"
+                                       href="/api/doc/@SelectedFile.Id/versions/@v.Id/content?name=@Uri.EscapeDataString(SelectedFile.Name)"><Icon Name="open" /></a>
+                                    @if (!v.IsCurrent)
+                                    {
+                                        <button class="btn btn-outline-secondary btn-sm" title="Make this version current" @onclick="() => Restore(v.Id)" disabled="@sampleMode">
+                                            <Icon Name="restore" />
+                                        </button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+    }
+</div>
 
 @code {
-    private List<LibraryDoc> docs = new();
+    private List<LibraryDoc> items = new();
+    private readonly List<string> pathSegments = new();
+    private string? selectedId;
     private string? busy;
     private string? error;
-    private string newName = "";
+    private string? warning;
+    private string? promptMode;   // newdoc | newfolder | rename
+    private string promptValue = "";
     private string? versionsFor;
     private List<VersionInfo>? versions;
     private bool sampleMode;
 
-    protected override async Task OnInitializedAsync() => await LoadAsync();
+    private string CurrentPath => string.Join('/', pathSegments);
+    private LibraryDoc? Selected => items.FirstOrDefault(i => i.Id == selectedId);
+    private LibraryDoc? SelectedFile => Selected is { IsFolder: false } f ? f : null;
 
-    private List<AccessGrant> GrantsFor(string driveItemId)
+    private string PromptLabel => promptMode switch
     {
-        var doc = Registry.Documents().FirstOrDefault(d => d.DriveItemId == driveItemId);
-        return doc == null ? [] : Registry.GrantsFor(doc.Id);
-    }
+        "newdoc" => "New document name:",
+        "newfolder" => "New folder name:",
+        "rename" => $"Rename '{Selected?.Name}' to:",
+        _ => ""
+    };
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
 
     private async Task LoadAsync()
     {
         error = null;
+        warning = null;
+        versionsFor = null;
+        versions = null;
+        selectedId = null;
         if (!Library.IsConfigured)
         {
-            // Placeholder rows so the UI can be reviewed before Azure setup
             sampleMode = true;
-            docs = Registry.Documents()
+            items = Registry.Documents()
                 .Select(d => new LibraryDoc(d.DriveItemId, d.Name, 24_576, d.LastActivityUtc, d.CreatedBy, d.WebUrl))
                 .ToList();
             return;
@@ -156,9 +240,92 @@
         try
         {
             sampleMode = false;
-            docs = await Library.ListLibraryAsync();
+            items = await Library.ListLibraryAsync(CurrentPath);
         }
         catch (Exception ex) { error = ex.Message; }
+    }
+
+    private void Select(string id, bool isChecked) => selectedId = isChecked ? id : null;
+
+    private async Task OpenFolder(string name)
+    {
+        pathSegments.Add(name);
+        await LoadAsync();
+    }
+
+    private async Task GoBack()
+    {
+        if (pathSegments.Count == 0) return;
+        pathSegments.RemoveAt(pathSegments.Count - 1);
+        await LoadAsync();
+    }
+
+    private async Task NavigateTo(int index)
+    {
+        // -1 = root ("Files"); otherwise keep segments up to and including index
+        var keep = index + 1;
+        pathSegments.RemoveRange(keep, pathSegments.Count - keep);
+        await LoadAsync();
+    }
+
+    private void StartPrompt(string mode)
+    {
+        promptMode = mode;
+        promptValue = mode == "rename" ? Selected?.Name ?? "" : "";
+    }
+
+    private async Task ConfirmPrompt()
+    {
+        var mode = promptMode;
+        var value = promptValue.Trim();
+        promptMode = null;
+        if (string.IsNullOrEmpty(value) || sampleMode) return;
+        busy = "prompt";
+        error = null;
+        warning = null;
+        try
+        {
+            var upn = await CurrentUpn();
+            switch (mode)
+            {
+                case "newdoc":
+                    await Library.CreateDocumentAsync(value, "Case", upn, CurrentPath);
+                    break;
+                case "newfolder":
+                    await Library.CreateFolderAsync(CurrentPath, value);
+                    break;
+                case "rename" when Selected is { } sel:
+                    await Library.RenameAsync(sel.Id, sel.Name, value);
+                    break;
+            }
+            await LoadAsync();
+        }
+        catch (Exception ex) { error = ex.Message; }
+        finally { busy = null; }
+    }
+
+    private async Task DeleteSelected()
+    {
+        if (Selected is not { } sel || sampleMode) return;
+        busy = sel.Id;
+        error = null;
+        warning = null;
+        try
+        {
+            if (sel.IsFolder)
+            {
+                if (!await Library.TryDeleteFolderAsync(sel.Id, sel.Name))
+                    warning = $"Folder '{sel.Name}' was NOT deleted — it still contains {sel.ChildCount ?? 0} item(s). Move or delete its contents first.";
+            }
+            else
+            {
+                await Library.DeleteItemAsync(sel.Id, sel.Name);
+            }
+            await LoadAsync();
+            if (warning != null) StateHasChanged();
+        }
+        catch (Exception ex) { error = ex.Message; }
+        finally { busy = null; }
     }
 
     private async Task<string> CurrentUpn()
@@ -169,37 +336,24 @@
                ?? throw new InvalidOperationException("No signed-in user.");
     }
 
-    private async Task CreateDoc()
-    {
-        if (string.IsNullOrWhiteSpace(newName)) return;
-        busy = "new";
-        error = null;
-        try
-        {
-            await Library.CreateDocumentAsync(newName.Trim(), "Case", await CurrentUpn());
-            newName = "";
-            await LoadAsync();
-        }
-        catch (Exception ex) { error = ex.Message; }
-        finally { busy = null; }
-    }
-
     private async Task OnUpload(InputFileChangeEventArgs e)
     {
+        if (sampleMode) return;
         busy = "upload";
         error = null;
         try
         {
             await using var stream = e.File.OpenReadStream(maxAllowedSize: 100 * 1024 * 1024);
-            await Library.UploadAsync(e.File.Name, stream);
+            await Library.UploadAsync(e.File.Name, stream, CurrentPath);
             await LoadAsync();
         }
         catch (Exception ex) { error = ex.Message; }
         finally { busy = null; }
     }
 
-    private async Task ViewInWord(LibraryDoc doc)
+    private async Task ViewSelected()
     {
+        if (SelectedFile is not { } doc || sampleMode) return;
         busy = doc.Id;
         error = null;
         try
@@ -212,8 +366,9 @@
         finally { busy = null; }
     }
 
-    private async Task ToggleVersions(LibraryDoc doc)
+    private async Task ToggleVersions()
     {
+        if (SelectedFile is not { } doc) return;
         if (versionsFor == doc.Id) { versionsFor = null; versions = null; return; }
         versionsFor = doc.Id;
         versions = null;
@@ -221,8 +376,7 @@
         {
             versions =
             [
-                new VersionInfo("3.0", DateTime.UtcNow.AddMinutes(-40), "Priya Nair", 24_576, true),
-                new VersionInfo("2.0", DateTime.UtcNow.AddHours(-5), "Jordan Lee", 22_118, false),
+                new VersionInfo("2.0", DateTime.UtcNow.AddMinutes(-40), "Priya Nair", 24_576, true),
                 new VersionInfo("1.0", DateTime.UtcNow.AddDays(-1), "Alex Rivera", 19_804, false),
             ];
             return;
@@ -231,28 +385,15 @@
         catch (Exception ex) { error = ex.Message; versionsFor = null; }
     }
 
-    private async Task Restore(LibraryDoc doc, string versionId)
+    private async Task Restore(string versionId)
     {
+        if (SelectedFile is not { } doc) return;
         busy = doc.Id;
         error = null;
         try
         {
             await Library.RestoreVersionByItemAsync(doc.Id, versionId, doc.Name);
             versions = await Library.ListVersionsByItemAsync(doc.Id);
-            await LoadAsync();
-        }
-        catch (Exception ex) { error = ex.Message; }
-        finally { busy = null; }
-    }
-
-    private async Task DeleteDoc(LibraryDoc doc)
-    {
-        busy = doc.Id;
-        error = null;
-        try
-        {
-            await Library.DeleteItemAsync(doc.Id, doc.Name);
-            await LoadAsync();
         }
         catch (Exception ex) { error = ex.Message; }
         finally { busy = null; }
