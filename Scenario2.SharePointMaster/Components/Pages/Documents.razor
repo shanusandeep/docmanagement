@@ -43,8 +43,8 @@
         <button class="btn btn-sm" title="Create a new folder here" @onclick="@(() => StartPrompt("newfolder"))" disabled="@(busy != null)">
             <Icon Name="folder" Size="14" /> <span class="ms-1">New folder</span>
         </button>
-        <button class="btn btn-sm" title="Open the selected document in Word" @onclick="ViewSelected" disabled="@(SelectedFile == null || busy != null)">
-            <Icon Name="word" Size="14" /> <span class="ms-1">View</span>
+        <button class="btn btn-sm" title="Open the selected document in Word for editing (autosave on)" @onclick="ViewSelected" disabled="@(SelectedFile == null || busy != null)">
+            <Icon Name="word" Size="14" /> <span class="ms-1">View/Edit</span>
         </button>
         <button class="btn btn-sm" title="Version history of the selected document" @onclick="ToggleVersions" disabled="@(SelectedFile == null || busy != null)">
             <Icon Name="history" Size="14" /> <span class="ms-1">Versions</span>
@@ -166,45 +166,73 @@
         </tbody>
     </table>
 
-    @if (versionsFor != null && SelectedFile != null)
+    @if (versionsFor != null && SelectedFile is { } versionDoc)
     {
-        <div class="border-top p-2 bg-light">
-            <strong>Versions — @SelectedFile.Name</strong>
-            @if (versions == null)
-            {
-                <div><span class="spinner-border spinner-border-sm"></span> loading…</div>
-            }
-            else if (versions.Count == 0)
-            {
-                <div class="text-muted">No versions yet.</div>
-            }
-            else
-            {
-                <table class="table table-sm mb-0" style="max-width: 760px">
-                    <thead><tr><th>#</th><th>Modified</th><th>By</th><th>Size</th><th></th></tr></thead>
-                    <tbody>
-                        @foreach (var v in versions)
+        <div class="modal fade show d-block" tabindex="-1" style="background: rgba(14, 42, 68, 0.45)">
+            <div class="modal-dialog modal-dialog-centered" style="max-width: 760px">
+                <div class="modal-content">
+                    <div class="modal-header py-2" style="background: var(--scc-navy); color: #fff">
+                        <h6 class="modal-title"><Icon Name="history" Size="14" /> Versions — @versionDoc.Name</h6>
+                        <button type="button" class="btn-close btn-close-white" @onclick="CloseVersions"></button>
+                    </div>
+                    <div class="modal-body">
+                        @if (error != null)
                         {
-                            <tr>
-                                <td><strong>v@(v.Id)</strong> @(v.IsCurrent ? "· current" : "")</td>
-                                <td>@v.ModifiedUtc?.ToLocalTime().ToString("g")</td>
-                                <td>@v.ModifiedBy</td>
-                                <td>@((v.SizeBytes ?? 0) / 1024) KB</td>
-                                <td>
-                                    <a class="btn btn-outline-primary btn-sm @(sampleMode ? "disabled" : null)" title="Open this version"
-                                       href="/api/doc/@SelectedFile.Id/versions/@v.Id/content?name=@Uri.EscapeDataString(SelectedFile.Name)"><Icon Name="open" /></a>
-                                    @if (!v.IsCurrent)
-                                    {
-                                        <button class="btn btn-outline-secondary btn-sm" title="Make this version current" @onclick="() => Restore(v.Id)" disabled="@sampleMode">
-                                            <Icon Name="restore" />
-                                        </button>
-                                    }
-                                </td>
-                            </tr>
+                            <div class="alert alert-danger py-2">@error</div>
                         }
-                    </tbody>
-                </table>
-            }
+                        @if (versions == null)
+                        {
+                            <div><span class="spinner-border spinner-border-sm"></span> loading…</div>
+                        }
+                        else if (versions.Count == 0)
+                        {
+                            <div class="text-muted">No versions yet.</div>
+                        }
+                        else
+                        {
+                            <table class="table table-sm mb-0">
+                                <thead><tr><th>#</th><th>Modified</th><th>By</th><th>Size</th><th></th></tr></thead>
+                                <tbody>
+                                    @foreach (var v in versions)
+                                    {
+                                        <tr>
+                                            <td><strong>v@(v.Id)</strong> @(v.IsCurrent ? "· current" : "")</td>
+                                            <td>@v.ModifiedUtc?.ToLocalTime().ToString("g")</td>
+                                            <td>@v.ModifiedBy</td>
+                                            <td>@((v.SizeBytes ?? 0) / 1024) KB</td>
+                                            <td>
+                                                <a class="btn btn-outline-primary btn-sm @(sampleMode ? "disabled" : null)" title="Open this version"
+                                                   href="/api/doc/@versionDoc.Id/versions/@v.Id/content?name=@Uri.EscapeDataString(versionDoc.Name)"><Icon Name="open" /></a>
+                                                @if (!v.IsCurrent)
+                                                {
+                                                    <button class="btn btn-outline-secondary btn-sm" title="Make this version current" @onclick="() => Restore(v.Id)" disabled="@sampleMode">
+                                                        <Icon Name="restore" />
+                                                    </button>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        }
+                    </div>
+                    <div class="modal-footer py-2 justify-content-between">
+                        <label class="btn btn-primary btn-sm mb-0 @(busy != null || sampleMode ? "disabled" : null)" title="Upload a file as the new current version">
+                            @if (busy == "verup")
+                            {
+                                <span class="spinner-border spinner-border-sm"></span>
+                            }
+                            else
+                            {
+                                <Icon Name="upload" Size="14" />
+                            }
+                            <span class="ms-1">Upload new version</span>
+                            <InputFile OnChange="OnUploadNewVersion" style="display:none" disabled="@(busy != null || sampleMode)" />
+                        </label>
+                        <button class="btn btn-outline-secondary btn-sm" @onclick="CloseVersions">Close</button>
+                    </div>
+                </div>
+            </div>
         </div>
     }
 </div>
@@ -427,6 +455,30 @@
         {
             await Library.RestoreVersionByItemAsync(doc.Id, versionId, doc.Name);
             versions = await Library.ListVersionsByItemAsync(doc.Id);
+            items = await Library.ListLibraryAsync(CurrentFolderId);   // refresh sizes/dates, keep modal open
+        }
+        catch (Exception ex) { error = ex.Message; }
+        finally { busy = null; }
+    }
+
+    private void CloseVersions()
+    {
+        versionsFor = null;
+        versions = null;
+        error = null;
+    }
+
+    private async Task OnUploadNewVersion(InputFileChangeEventArgs e)
+    {
+        if (SelectedFile is not { } doc || sampleMode) return;
+        busy = "verup";
+        error = null;
+        try
+        {
+            await using var stream = e.File.OpenReadStream(maxAllowedSize: 100 * 1024 * 1024);
+            await Library.UploadNewVersionAsync(doc.Id, doc.Name, stream);
+            versions = await Library.ListVersionsByItemAsync(doc.Id);
+            items = await Library.ListLibraryAsync(CurrentFolderId);   // keep selection and modal open
         }
         catch (Exception ex) { error = ex.Message; }
         finally { busy = null; }

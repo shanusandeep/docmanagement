@@ -190,6 +190,42 @@ public class SealedLibraryService
             item.LastModifiedDateTime?.UtcDateTime, item.LastModifiedBy?.User?.DisplayName, item.WebUrl ?? "");
     }
 
+    /// <summary>
+    /// Replaces an existing document's content — SharePoint records it as the
+    /// next version. Track Changes is enforced for .docx content.
+    /// </summary>
+    public async Task UploadNewVersionAsync(string itemId, string fileName, Stream content)
+    {
+        _log.Info($"Uploading new version of '{fileName}'…");
+
+        using var buffer = new MemoryStream();
+        await content.CopyToAsync(buffer);
+        var bytes = buffer.ToArray();
+        if (fileName.EndsWith(".docx", StringComparison.OrdinalIgnoreCase))
+            bytes = _word.EnsureTrackChanges(bytes);
+
+        var sessionBody = new Microsoft.Graph.Drives.Item.Items.Item.CreateUploadSession.CreateUploadSessionPostRequestBody
+        {
+            Item = new DriveItemUploadableProperties
+            {
+                AdditionalData = new Dictionary<string, object>
+                {
+                    ["@microsoft.graph.conflictBehavior"] = "replace"
+                }
+            }
+        };
+        var session = await Graph.Drives[_sp.DriveId].Items[itemId].CreateUploadSession.PostAsync(sessionBody)
+            ?? throw new InvalidOperationException("Could not create an upload session.");
+
+        using var uploadStream = new MemoryStream(bytes);
+        var uploadTask = new LargeFileUploadTask<DriveItem>(session, uploadStream, -1, Graph.RequestAdapter);
+        var result = await uploadTask.UploadAsync();
+        if (!result.UploadSucceeded)
+            throw new InvalidOperationException("Version upload did not complete.");
+
+        _log.Info($"New version of '{fileName}' uploaded — previous versions remain restorable.");
+    }
+
     /// <summary>Finds (or creates) the registry row for a drive item so grants can attach to it.</summary>
     public RegisteredDocument EnsureRegistered(string driveItemId, string name, string webUrl)
     {
