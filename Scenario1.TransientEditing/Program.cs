@@ -51,6 +51,14 @@ app.UseAuthorization();
 app.UseAntiforgery();
 
 app.MapControllers();
+
+// PDF conversion (delegated): in-place for checked-out docs, transient upload for share-resident docs
+app.MapGet("/api/pdf", async (string path, TransientDocumentService docs) =>
+{
+    var (content, fileName) = await docs.ConvertToPdfAsync(path);
+    return Results.Stream(content, "application/pdf", fileName);
+}).RequireAuthorization();
+
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 

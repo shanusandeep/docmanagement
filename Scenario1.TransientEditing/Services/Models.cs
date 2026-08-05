@@ -28,11 +28,7 @@ public class DocumentState
     public string? LastModifiedBy { get; set; }
 }
 
-public class ShareFile
-{
-    public string Name { get; set; } = "";
-    public long SizeBytes { get; set; }
-    public DateTime ModifiedUtc { get; set; }
-}
+/// <summary>A file or folder on the (simulated) network share.</summary>
+public record ShareEntry(string Name, string RelativePath, bool IsFolder, long? SizeBytes, DateTime ModifiedUtc, int? ChildCount);
 
 public enum SyncResult { StillActive, Locked, Synced, NotFound, Error }

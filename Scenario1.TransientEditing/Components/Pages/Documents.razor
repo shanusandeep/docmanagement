@@ -11,123 +11,223 @@
 @inject IJSRuntime JS
 @inject Microsoft.Identity.Web.MicrosoftIdentityConsentAndConditionalAccessHandler ConsentHandler
 
-<PageTitle>Documents — Scenario 1</PageTitle>
+<PageTitle>Manage Documents — SERFIS</PageTitle>
 
-<h1>Serfis Documents</h1>
-<p class="text-muted">
-    Source: network share <code>@Share.RootPath</code>. Documents move to SharePoint only while being edited.
-</p>
+<h1>Manage Documents</h1>
 
 @if (error != null)
 {
-    <div class="alert alert-danger">@error</div>
+    <div class="alert alert-danger py-2">@error</div>
+}
+@if (warning != null)
+{
+    <div class="alert alert-warning py-2">@warning</div>
 }
 
-<div class="row">
-    <div class="col-lg-8">
-        <div class="mb-2 d-flex gap-2">
-            <button class="btn btn-outline-primary btn-sm" @onclick="Refresh">Refresh</button>
-            <button class="btn btn-outline-secondary btn-sm" @onclick="RunSweep" disabled="@(busy != null)">
-                Run sweep now (simulate scheduled job)
+<div class="sp-card p-2">
+
+    <div class="sp-toolbar d-flex flex-wrap align-items-center gap-1 border rounded px-2 py-1 mb-2 bg-white">
+        <label class="btn btn-sm mb-0 @(busy != null ? "disabled" : null)" title="Upload a file into the current folder">
+            @if (busy == "upload")
+            {
+                <span class="spinner-border spinner-border-sm"></span>
+            }
+            else
+            {
+                <Icon Name="upload" Size="14" />
+            }
+            <span class="ms-1">Upload file</span>
+            <InputFile OnChange="OnUpload" style="display:none" disabled="@(busy != null)" />
+        </label>
+        <button class="btn btn-sm" title="Create a new Word document here" @onclick="@(() => StartPrompt("newdoc"))" disabled="@(busy != null)">
+            <Icon Name="plus" Size="14" /> <span class="ms-1">New document</span>
+        </button>
+        <button class="btn btn-sm" title="Create a new folder here" @onclick="@(() => StartPrompt("newfolder"))" disabled="@(busy != null)">
+            <Icon Name="folder" Size="14" /> <span class="ms-1">New folder</span>
+        </button>
+        <button class="btn btn-sm" title="Open the selected document in Word for editing (uploads to SharePoint, autosave on)" @onclick="ViewSelected" disabled="@(SelectedDocx == null || busy != null)">
+            <Icon Name="word" Size="14" /> <span class="ms-1">View/Edit</span>
+        </button>
+        @if (SelectedFile is { } pdfSel && IsConvertible(pdfSel.Name))
+        {
+            <a class="btn btn-sm" title="Download the selected document as PDF"
+               href="/api/pdf?path=@Uri.EscapeDataString(pdfSel.RelativePath)" target="_blank">
+                <Icon Name="pdf" Size="14" /> <span class="ms-1">PDF</span>
+            </a>
+        }
+        else
+        {
+            <button class="btn btn-sm" disabled><Icon Name="pdf" Size="14" /> <span class="ms-1">PDF</span></button>
+        }
+        <button class="btn btn-sm" title="Rename the selected item" @onclick="@(() => StartPrompt("rename"))" disabled="@(Selected == null || busy != null)">
+            <Icon Name="pencil" Size="14" /> <span class="ms-1">Rename</span>
+        </button>
+        <button class="btn btn-sm text-danger" title="Delete the selected item" @onclick="DeleteSelected" disabled="@(Selected == null || busy != null)">
+            <Icon Name="trash" Size="14" /> <span class="ms-1">Delete</span>
+        </button>
+        @if (SelectedState != null)
+        {
+            <button class="btn btn-sm" title="Sync this document back to the network share now" @onclick="SyncSelected" disabled="@(busy != null)">
+                <Icon Name="restore" Size="14" /> <span class="ms-1">Sync back</span>
             </button>
-            <div class="input-group input-group-sm" style="max-width: 320px">
-                <input class="form-control" placeholder="New document name" @bind="newDocName" />
-                <button class="btn btn-outline-success" @onclick="CreateNew">Create on share</button>
+        }
+        <button class="btn btn-sm ms-auto" title="Run the sync-back sweep now (simulates the scheduled job)" @onclick="RunSweep" disabled="@(busy != null)">
+            <Icon Name="history" Size="14" />
+        </button>
+        <button class="btn btn-sm" title="Refresh" @onclick="Refresh" disabled="@(busy != null)">
+            <Icon Name="refresh" Size="14" />
+        </button>
+    </div>
+
+    @if (promptMode != null)
+    {
+        <div class="modal fade show d-block" tabindex="-1" style="background: rgba(14, 42, 68, 0.45)">
+            <div class="modal-dialog modal-dialog-centered" style="max-width: 420px">
+                <div class="modal-content">
+                    <div class="modal-header py-2" style="background: var(--scc-navy); color: #fff">
+                        <h6 class="modal-title">@PromptTitle</h6>
+                        <button type="button" class="btn-close btn-close-white" @onclick="@(() => promptMode = null)"></button>
+                    </div>
+                    <div class="modal-body">
+                        <label class="form-label small text-muted">@PromptLabel</label>
+                        <input class="form-control" @bind="promptValue" @bind:event="oninput"
+                               @onkeyup="@(e => { if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(promptValue)) _ = ConfirmPrompt(); })"
+                               @ref="promptInput" />
+                    </div>
+                    <div class="modal-footer py-2">
+                        <button class="btn btn-outline-secondary btn-sm" @onclick="@(() => promptMode = null)">Cancel</button>
+                        <button class="btn btn-primary btn-sm" @onclick="ConfirmPrompt" disabled="@(string.IsNullOrWhiteSpace(promptValue))">OK</button>
+                    </div>
+                </div>
             </div>
         </div>
+    }
 
-        <table class="table table-hover align-middle">
-            <thead>
-                <tr>
-                    <th>Document</th>
-                    <th>Status</th>
-                    <th style="width: 40%">Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach (var f in files)
-                {
-                    var state = states.GetValueOrDefault(f.Name);
-                    <tr>
-                        <td>
-                            <strong>@f.Name</strong><br />
-                            <small class="text-muted">@(f.SizeBytes / 1024)&nbsp;KB · modified @f.ModifiedUtc.ToLocalTime().ToString("g")</small>
-                        </td>
-                        <td>
-                            @if (state == null)
-                            {
-                                <span class="badge bg-success">On network share</span>
-                            }
-                            else
-                            {
-                                <span class="badge bg-primary">In SharePoint</span><br />
-                                <small class="text-muted">
-                                    by @state.CheckedOutBy<br />
-                                    last activity @state.LastActivityUtc.ToLocalTime().ToString("T")
-                                    @if (state.LastModifiedBy != null)
-                                    {
-                                        <text> (@state.LastModifiedBy)</text>
-                                    }
-                                </small>
-                            }
-                        </td>
-                        <td>
-                            @if (busy == f.Name)
-                            {
-                                <span class="spinner-border spinner-border-sm me-2"></span>
-                                <span>working…</span>
-                            }
-                            else if (state == null)
-                            {
-                                <button class="btn btn-primary btn-sm" @onclick="() => ViewEdit(f.Name, desktop: true)">
-                                    View/Edit (Word)
-                                </button>
-                                <button class="btn btn-outline-primary btn-sm" @onclick="() => ViewEdit(f.Name, desktop: false)">
-                                    View/Edit (Online)
-                                </button>
-                            }
-                            else
-                            {
-                                <a class="btn btn-primary btn-sm" href="@TransientDocumentService.DesktopEditLink(state)">Open in Word</a>
-                                <a class="btn btn-outline-primary btn-sm" href="@TransientDocumentService.OnlineEditLink(state)" target="_blank">Open Online</a>
-                                <button class="btn btn-outline-danger btn-sm" @onclick="() => ForceSync(state)">
-                                    Sync back now
-                                </button>
-                            }
-                        </td>
-                    </tr>
-                }
-            </tbody>
-        </table>
-    </div>
-
-    <div class="col-lg-4">
-        <h5>Activity feed</h5>
-        <div style="max-height: 60vh; overflow-y: auto">
-            @foreach (var entry in Log.Snapshot())
+    <div class="mb-2">
+        <span class="sp-crumb"><Icon Name="home" Size="13" /> <a href="" @onclick="@(() => NavigateTo(-1))" @onclick:preventDefault>Files</a></span>
+        @for (var i = 0; i < pathSegments.Count; i++)
+        {
+            var index = i;
+            <span class="text-muted mx-1">/</span>
+            @if (index == pathSegments.Count - 1)
             {
-                <div class="border-bottom py-1">
-                    <small class="text-muted">@entry.AtUtc.ToLocalTime().ToString("T")</small>
-                    <small class="@(entry.Level == "error" ? "text-danger" : entry.Level == "warn" ? "text-warning" : "")">
-                        @entry.Message
-                    </small>
-                </div>
+                <span>@pathSegments[index]</span>
             }
-        </div>
+            else
+            {
+                <a href="" @onclick="@(() => NavigateTo(index))" @onclick:preventDefault>@pathSegments[index]</a>
+            }
+        }
     </div>
+
+    <table class="table table-striped sp-table align-middle mb-0">
+        <thead>
+            <tr>
+                <th style="width: 36px"></th>
+                <th>File name</th>
+                <th>Description</th>
+                <th>Date modified</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var item in entries)
+            {
+                var state = item.IsFolder ? null : Store.Get(item.RelativePath);
+                <tr class="@(selectedPath == item.RelativePath ? "table-active" : null)">
+                    <td>
+                        <input class="form-check-input" type="checkbox"
+                               checked="@(selectedPath == item.RelativePath)"
+                               @onchange="@(e => Select(item.RelativePath, (bool)e.Value!))" />
+                    </td>
+                    <td>
+                        @if (item.IsFolder)
+                        {
+                            <a href="" class="fw-semibold" @onclick="@(() => OpenFolder(item.Name))" @onclick:preventDefault>
+                                <Icon Name="folder" Size="14" /> @item.Name
+                            </a>
+                        }
+                        else
+                        {
+                            <span><Icon Name="file" Size="14" /> @item.Name</span>
+                            @if (state != null)
+                            {
+                                <span class="badge bg-primary ms-2">In SharePoint</span>
+                            }
+                        }
+                    </td>
+                    <td class="text-muted">
+                        @if (item.IsFolder)
+                        {
+                            <text>@(item.ChildCount ?? 0) item(s)</text>
+                        }
+                        else if (state != null)
+                        {
+                            <text>being edited · opened by @state.CheckedOutBy · last activity @state.LastActivityUtc.ToLocalTime().ToString("t")</text>
+                        }
+                        else
+                        {
+                            <text>@((item.SizeBytes ?? 0) / 1024) KB · on network share</text>
+                        }
+                    </td>
+                    <td>@item.ModifiedUtc.ToLocalTime().ToString("g")</td>
+                </tr>
+            }
+            @if (entries.Count == 0)
+            {
+                <tr><td colspan="4" class="text-muted py-3">This folder is empty.</td></tr>
+            }
+        </tbody>
+    </table>
 </div>
 
 @code {
-    private List<ShareFile> files = new();
-    private Dictionary<string, DocumentState> states = new();
+    private List<ShareEntry> entries = new();
+    private readonly List<string> pathSegments = new();
+    private string? selectedPath;
     private string? busy;
     private string? error;
-    private string newDocName = "";
+    private string? warning;
+    private string? promptMode;   // newdoc | newfolder | rename
+    private string promptValue = "";
+    private ElementReference promptInput;
+
+    private string CurrentDir => string.Join('/', pathSegments);
+    private ShareEntry? Selected => entries.FirstOrDefault(e => e.RelativePath == selectedPath);
+    private ShareEntry? SelectedFile => Selected is { IsFolder: false } f ? f : null;
+    private ShareEntry? SelectedDocx => SelectedFile is { } f && f.Name.EndsWith(".docx", StringComparison.OrdinalIgnoreCase) ? f : null;
+    private DocumentState? SelectedState => SelectedFile is { } f ? Store.Get(f.RelativePath) : null;
+
+    private static bool IsConvertible(string name) =>
+        System.Text.RegularExpressions.Regex.IsMatch(name, @"\.(docx?|xlsx?)$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+    private string PromptTitle => promptMode switch
+    {
+        "newdoc" => "New Document",
+        "newfolder" => "New Folder",
+        "rename" => "Rename",
+        _ => ""
+    };
+
+    private string PromptLabel => promptMode switch
+    {
+        "newdoc" => "Document name",
+        "newfolder" => "Folder name",
+        "rename" => $"New name for '{Selected?.Name}'",
+        _ => ""
+    };
 
     protected override void OnInitialized()
     {
         Log.Changed += OnLogChanged;
         Refresh();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (promptMode != null)
+        {
+            try { await promptInput.FocusAsync(); } catch { /* not rendered yet */ }
+        }
     }
 
     private void OnLogChanged() => _ = InvokeAsync(() =>
@@ -138,27 +238,102 @@
 
     private void Refresh()
     {
-        files = Share.List();
-        states = Store.All().ToDictionary(s => s.FileName, StringComparer.OrdinalIgnoreCase);
+        error = null;
+        try { entries = Share.List(CurrentDir); }
+        catch (Exception ex) { error = ex.Message; entries = []; }
     }
 
-    private async Task ViewEdit(string fileName, bool desktop)
+    private void Select(string path, bool isChecked) => selectedPath = isChecked ? path : null;
+
+    private void OpenFolder(string name)
     {
-        busy = fileName;
+        pathSegments.Add(name);
+        selectedPath = null;
+        Refresh();
+    }
+
+    private void NavigateTo(int index)
+    {
+        var keep = index + 1;
+        pathSegments.RemoveRange(keep, pathSegments.Count - keep);
+        selectedPath = null;
+        Refresh();
+    }
+
+    private void StartPrompt(string mode)
+    {
+        promptMode = mode;
+        promptValue = mode == "rename" ? Selected?.Name ?? "" : "";
+    }
+
+    private async Task ConfirmPrompt()
+    {
+        var mode = promptMode;
+        var value = promptValue.Trim();
+        promptMode = null;
+        if (string.IsNullOrEmpty(value)) return;
+        error = null;
+        warning = null;
+        try
+        {
+            switch (mode)
+            {
+                case "newdoc":
+                    Share.CreateNew(CurrentDir, value);
+                    Log.Info($"Created '{value}' on the network share (as Serfis would).");
+                    break;
+                case "newfolder":
+                    Share.CreateFolder(CurrentDir, value);
+                    Log.Info($"Folder '{value}' created on the network share.");
+                    break;
+                case "rename" when Selected is { } sel:
+                    if (!sel.IsFolder && Store.Get(sel.RelativePath) != null)
+                    {
+                        warning = $"'{sel.Name}' is currently in SharePoint being edited — sync it back before renaming.";
+                        break;
+                    }
+                    Share.Rename(sel.RelativePath, value);
+                    Log.Info($"'{sel.Name}' renamed to '{value}'.");
+                    break;
+            }
+        }
+        catch (Exception ex) { error = ex.Message; }
+        finally
+        {
+            selectedPath = null;
+            Refresh();
+            await Task.CompletedTask;
+        }
+    }
+
+    private async Task OnUpload(InputFileChangeEventArgs e)
+    {
+        busy = "upload";
+        error = null;
+        try
+        {
+            await using var stream = e.File.OpenReadStream(maxAllowedSize: 100 * 1024 * 1024);
+            await Share.WriteAsync(string.IsNullOrEmpty(CurrentDir) ? e.File.Name : $"{CurrentDir}/{e.File.Name}", stream);
+            Log.Info($"'{e.File.Name}' uploaded to the network share.");
+        }
+        catch (Exception ex) { error = ex.Message; }
+        finally { busy = null; Refresh(); }
+    }
+
+    private async Task ViewSelected()
+    {
+        if (SelectedDocx is not { } doc) return;
+        busy = doc.RelativePath;
         error = null;
         try
         {
             var auth = await AuthProvider.GetAuthenticationStateAsync();
             var user = auth.User.Identity?.Name ?? "unknown user";
-            var state = await DocService.CheckoutAsync(fileName, user);
-            var url = desktop
-                ? TransientDocumentService.DesktopEditLink(state)
-                : TransientDocumentService.OnlineEditLink(state);
-            await JS.InvokeVoidAsync("launchUrl", url, !desktop);
+            var state = await DocService.CheckoutAsync(doc.RelativePath, user);
+            await JS.InvokeVoidAsync("launchUrl", TransientDocumentService.DesktopEditLink(state), false);
         }
         catch (Microsoft.Graph.Models.ODataErrors.ODataError ex) when (ex.ResponseStatusCode == 403)
         {
-            // Scenario 1 is delegated: the signed-in user must hold rights on the library
             var auth = await AuthProvider.GetAuthenticationStateAsync();
             error = $"SharePoint denied access for {auth.User.Identity?.Name}. Scenario 1 edits as the signed-in user, " +
                     "so that user needs baseline access to the document library (in production: membership in the " +
@@ -169,33 +344,26 @@
             try { ConsentHandler.HandleException(ex); }
             catch { error = ex.Message; }
         }
-        finally
-        {
-            busy = null;
-            Refresh();
-        }
+        finally { busy = null; Refresh(); }
     }
 
-    private async Task ForceSync(DocumentState state)
+    private async Task SyncSelected()
     {
+        if (SelectedState is not { } state) return;
         busy = state.FileName;
         error = null;
         try
         {
             var result = await Sync.TrySyncBackAsync(Graph, state, force: true);
             if (result == SyncResult.Locked)
-                error = "Document is still open in Word/Office Online — close it first (this is the lock probe protecting active editors).";
+                warning = "Document is still open in Word/Office Online — close it first (the lock probe protects active editors).";
         }
         catch (Exception ex)
         {
             try { ConsentHandler.HandleException(ex); }
             catch { error = ex.Message; }
         }
-        finally
-        {
-            busy = null;
-            Refresh();
-        }
+        finally { busy = null; Refresh(); }
     }
 
     private async Task RunSweep()
@@ -212,20 +380,35 @@
             try { ConsentHandler.HandleException(ex); }
             catch { error = ex.Message; }
         }
-        finally
-        {
-            busy = null;
-            Refresh();
-        }
+        finally { busy = null; Refresh(); }
     }
 
-    private void CreateNew()
+    private void DeleteSelected()
     {
-        if (string.IsNullOrWhiteSpace(newDocName)) return;
-        Share.CreateNew(newDocName.Trim());
-        Log.Info($"Created '{newDocName.Trim()}' on the network share (as Serfis would).");
-        newDocName = "";
-        Refresh();
+        if (Selected is not { } sel) return;
+        error = null;
+        warning = null;
+        try
+        {
+            if (sel.IsFolder)
+            {
+                if (!Share.TryDeleteFolder(sel.RelativePath, out var count))
+                    warning = $"Folder '{sel.Name}' was NOT deleted — it still contains {count} item(s). Move or delete its contents first.";
+                else
+                    Log.Info($"Empty folder '{sel.Name}' deleted from the network share.");
+            }
+            else if (Store.Get(sel.RelativePath) != null)
+            {
+                warning = $"'{sel.Name}' is currently in SharePoint being edited — sync it back before deleting.";
+            }
+            else
+            {
+                Share.DeleteFile(sel.RelativePath);
+                Log.Info($"'{sel.Name}' deleted from the network share.");
+            }
+        }
+        catch (Exception ex) { error = ex.Message; }
+        finally { selectedPath = null; Refresh(); }
     }
 
     public void Dispose() => Log.Changed -= OnLogChanged;
