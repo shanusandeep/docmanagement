@@ -59,10 +59,21 @@
         {
             <button class="btn btn-sm" disabled><Icon Name="pdf" Size="14" /> <span class="ms-1">PDF</span></button>
         }
+        @if (SelectedFile is { } dlSel)
+        {
+            <a class="btn btn-sm" title="Download the selected document"
+               href="/api/download?path=@Uri.EscapeDataString(dlSel.RelativePath)">
+                <Icon Name="download" Size="14" /> <span class="ms-1">Download</span>
+            </a>
+        }
+        else
+        {
+            <button class="btn btn-sm" disabled><Icon Name="download" Size="14" /> <span class="ms-1">Download</span></button>
+        }
         <button class="btn btn-sm" title="Rename the selected item" @onclick="@(() => StartPrompt("rename"))" disabled="@(Selected == null || busy != null)">
             <Icon Name="pencil" Size="14" /> <span class="ms-1">Rename</span>
         </button>
-        <button class="btn btn-sm text-danger" title="Delete the selected item" @onclick="DeleteSelected" disabled="@(Selected == null || busy != null)">
+        <button class="btn btn-sm text-danger" title="Delete the selected item" @onclick="@(() => confirmingDelete = Selected)" disabled="@(Selected == null || busy != null)">
             <Icon Name="trash" Size="14" /> <span class="ms-1">Delete</span>
         </button>
         @if (SelectedState != null)
@@ -78,6 +89,35 @@
             <Icon Name="refresh" Size="14" />
         </button>
     </div>
+
+    @if (confirmingDelete is { } deleting)
+    {
+        <div class="modal fade show d-block" tabindex="-1" style="background: rgba(14, 42, 68, 0.45)">
+            <div class="modal-dialog modal-dialog-centered" style="max-width: 460px">
+                <div class="modal-content">
+                    <div class="modal-header py-2 bg-danger text-white">
+                        <h6 class="modal-title"><Icon Name="trash" Size="14" /> Confirm Delete</h6>
+                        <button type="button" class="btn-close btn-close-white" @onclick="@(() => confirmingDelete = null)"></button>
+                    </div>
+                    <div class="modal-body">
+                        Delete <strong>@deleting.Name</strong>?
+                        @if (deleting.IsFolder)
+                        {
+                            <div class="text-muted small mt-1">Only empty folders can be deleted — the contents are never removed with the folder.</div>
+                        }
+                        else
+                        {
+                            <div class="text-muted small mt-1">It will be removed from the network share.</div>
+                        }
+                    </div>
+                    <div class="modal-footer py-2">
+                        <button class="btn btn-outline-secondary btn-sm" @onclick="@(() => confirmingDelete = null)">Cancel</button>
+                        <button class="btn btn-danger btn-sm" @onclick="DeleteConfirmed">Delete</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
 
     @if (promptMode != null)
     {
@@ -383,9 +423,12 @@
         finally { busy = null; Refresh(); }
     }
 
-    private void DeleteSelected()
+    private ShareEntry? confirmingDelete;
+
+    private void DeleteConfirmed()
     {
-        if (Selected is not { } sel) return;
+        if (confirmingDelete is not { } sel) return;
+        confirmingDelete = null;
         error = null;
         warning = null;
         try

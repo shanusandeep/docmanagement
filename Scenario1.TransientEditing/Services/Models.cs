@@ -25,7 +25,6 @@ public class DocumentState
     public string CheckedOutBy { get; set; } = "";
     public DateTime CheckedOutAtUtc { get; set; }
     public DateTime LastActivityUtc { get; set; }
-    public string? LastModifiedBy { get; set; }
 }
 
 /// <summary>A file or folder on the (simulated) network share.</summary>

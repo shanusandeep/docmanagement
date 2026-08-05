@@ -99,13 +99,26 @@ public class TransientDocumentService
         else
         {
             var bytes = _share.Read(relativePath);
-            using var ms = new MemoryStream(bytes);
             var tmpPath = $"__pdf-tmp/{Guid.NewGuid():N}-{Path.GetFileName(relativePath)}";
-            await EnsureSpFolderAsync("__pdf-tmp");
-            var item = await _graph.Drives[_sp.DriveId].Items["root"]
-                .ItemWithPath(tmpPath).Content.PutAsync(ms)
-                ?? throw new InvalidOperationException("Transient upload for PDF conversion failed.");
-            itemId = item.Id!;
+
+            // The scratch folder is reused across conversions (it's hidden from
+            // listings). Assume it exists; create it only on the first-ever run.
+            DriveItem? item;
+            try
+            {
+                using var ms = new MemoryStream(bytes);
+                item = await _graph.Drives[_sp.DriveId].Items["root"]
+                    .ItemWithPath(tmpPath).Content.PutAsync(ms);
+            }
+            catch (ODataError ex) when (ex.ResponseStatusCode == 404)
+            {
+                await EnsureSpFolderAsync("__pdf-tmp");
+                using var ms = new MemoryStream(bytes);
+                item = await _graph.Drives[_sp.DriveId].Items["root"]
+                    .ItemWithPath(tmpPath).Content.PutAsync(ms);
+            }
+
+            itemId = item?.Id ?? throw new InvalidOperationException("Transient upload for PDF conversion failed.");
             transient = true;
         }
 
@@ -120,12 +133,39 @@ public class TransientDocumentService
 
         if (transient)
         {
-            try { await _graph.Drives[_sp.DriveId].Items[itemId].DeleteAsync(); }
-            catch { /* cleanup is best-effort; the sweep folder is transient anyway */ }
+            // permanent delete keeps both the reused scratch folder and the recycle bin clean
+            try { await _graph.Drives[_sp.DriveId].Items[itemId].PermanentDelete.PostAsync(); }
+            catch
+            {
+                try { await _graph.Drives[_sp.DriveId].Items[itemId].DeleteAsync(); }
+                catch { /* best-effort; the folder is hidden from listings either way */ }
+            }
         }
 
         _log.Info($"'{relativePath}' converted to PDF via Graph{(transient ? " (transient copy, removed after conversion)" : "")}.");
         return (buffer, pdfName);
+    }
+
+    /// <summary>
+    /// Raw download. Checked-out documents stream from SharePoint (freshest
+    /// autosaved bytes); everything else comes straight from the share.
+    /// </summary>
+    public async Task<(Stream Content, string FileName)> DownloadAsync(string relativePath)
+    {
+        var fileName = Path.GetFileName(relativePath);
+        var state = _store.Get(relativePath);
+        if (state != null)
+        {
+            var stream = await _graph.Drives[_sp.DriveId].Items[state.DriveItemId].Content.GetAsync();
+            if (stream != null)
+            {
+                var buffer = new MemoryStream();
+                await stream.CopyToAsync(buffer);
+                buffer.Position = 0;
+                return (buffer, fileName);
+            }
+        }
+        return (new MemoryStream(_share.Read(relativePath)), fileName);
     }
 
     private static string? GetDir(string relativePath)
@@ -134,11 +174,11 @@ public class TransientDocumentService
         return string.IsNullOrEmpty(dir) ? null : dir.Replace('\\', '/');
     }
 
-    /// <summary>Creates the folder chain in SharePoint so nested uploads have a parent.</summary>
-    private async Task EnsureSpFolderAsync(string? relativeDir)
+    /// <summary>Creates the folder chain in SharePoint so nested uploads have a parent; returns the deepest folder's id.</summary>
+    private async Task<string> EnsureSpFolderAsync(string? relativeDir)
     {
-        if (string.IsNullOrEmpty(relativeDir)) return;
         var parentId = "root";
+        if (string.IsNullOrEmpty(relativeDir)) return parentId;
         foreach (var segment in relativeDir.Split('/', StringSplitOptions.RemoveEmptyEntries))
         {
             try
@@ -159,14 +199,10 @@ public class TransientDocumentService
                     ?? throw new InvalidOperationException($"Folder '{segment}' exists but could not be resolved.");
             }
         }
+        return parentId;
     }
 
     /// <summary>Desktop Word needs the direct file path (webDavUrl), not the Doc.aspx viewer URL.</summary>
     public static string DesktopEditLink(DocumentState state) =>
         $"ms-word:ofe|u|{(string.IsNullOrEmpty(state.WebDavUrl) ? state.WebUrl : state.WebDavUrl)}";
-
-    public static string OnlineEditLink(DocumentState state) =>
-        state.WebUrl.Contains("action=default")
-            ? state.WebUrl.Replace("action=default", "action=edit")
-            : state.WebUrl + (state.WebUrl.Contains('?') ? "&" : "?") + "web=1&action=edit";
 }

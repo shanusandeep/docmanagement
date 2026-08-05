@@ -59,6 +59,21 @@ app.MapGet("/api/pdf", async (string path, TransientDocumentService docs) =>
     return Results.Stream(content, "application/pdf", fileName);
 }).RequireAuthorization();
 
+// Raw download: SharePoint copy when checked out, share copy otherwise
+app.MapGet("/api/download", async (string path, TransientDocumentService docs) =>
+{
+    var (content, fileName) = await docs.DownloadAsync(path);
+    return Results.Stream(content, MimeFor(fileName), fileName);
+}).RequireAuthorization();
+
+static string MimeFor(string name) => Path.GetExtension(name).ToLowerInvariant() switch
+{
+    ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".pdf" => "application/pdf",
+    ".xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    _ => "application/octet-stream"
+};
+
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 

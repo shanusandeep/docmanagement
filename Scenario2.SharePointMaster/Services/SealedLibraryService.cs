@@ -80,14 +80,6 @@ public class SealedLibraryService
         return doc;
     }
 
-    /// <summary>Soft delete: the file goes to the site recycle bin (~93 days), demonstrating the retention story.</summary>
-    public async Task DeleteDocumentAsync(RegisteredDocument doc)
-    {
-        await Graph.Drives[_sp.DriveId].Items[doc.DriveItemId].DeleteAsync();
-        _registry.RemoveDocument(doc.Id);
-        _log.Info($"'{doc.Name}' deleted — recoverable from the SharePoint recycle bin for ~93 days (and governed by any Purview retention policy).");
-    }
-
     // ---- Live library listing ----------------------------------------------
 
     // NOTE: navigation is ID-based on purpose. ItemWithPath() returns a builder
@@ -106,6 +98,7 @@ public class SealedLibraryService
                     ["id", "name", "size", "lastModifiedDateTime", "lastModifiedBy", "webUrl", "webDavUrl", "folder", "file"];
             });
         return (response?.Value ?? [])
+            .Where(i => !(i.Name ?? "").StartsWith("__"))   // hide internal scratch items (e.g. Scenario 1's __pdf-tmp)
             .Select(i => new LibraryDoc(
                 i.Id!, i.Name ?? "(unnamed)", i.Size,
                 i.LastModifiedDateTime?.UtcDateTime,
@@ -392,29 +385,6 @@ public class SealedLibraryService
         }
     }
 
-    // ---- Version management -------------------------------------------------
-
-    public async Task<List<VersionInfo>> ListVersionsAsync(RegisteredDocument doc)
-    {
-        var response = await Graph.Drives[_sp.DriveId].Items[doc.DriveItemId].Versions.GetAsync();
-        var versions = response?.Value ?? [];
-        return versions
-            .Select((v, i) => new VersionInfo(
-                v.Id ?? "",
-                v.LastModifiedDateTime?.UtcDateTime,
-                v.LastModifiedBy?.User?.DisplayName,
-                v.Size,
-                i == 0))
-            .ToList();
-    }
-
-    public async Task RestoreVersionAsync(RegisteredDocument doc, string versionId)
-    {
-        await Graph.Drives[_sp.DriveId].Items[doc.DriveItemId]
-            .Versions[versionId].RestoreVersion.PostAsync();
-        _log.Info($"Version {versionId} of '{doc.Name}' restored as the current version (native SharePoint versioning).");
-    }
-
     // ---- Reconciliation -----------------------------------------------------
 
     /// <summary>
@@ -465,12 +435,4 @@ public class SealedLibraryService
     /// <summary>Desktop Word must get the direct file path (webDavUrl), never the Doc.aspx viewer URL.</summary>
     public static string DesktopEditLink(LibraryDoc doc) =>
         $"ms-word:ofe|u|{(string.IsNullOrEmpty(doc.WebDavUrl) ? doc.WebUrl : doc.WebDavUrl)}";
-
-    public static string OnlineLink(LibraryDoc doc, bool edit)
-    {
-        var action = edit ? "action=edit" : "action=view";
-        return doc.WebUrl.Contains("action=default")
-            ? doc.WebUrl.Replace("action=default", action)
-            : doc.WebUrl + (doc.WebUrl.Contains('?') ? "&" : "?") + "web=1&" + action;
-    }
 }

@@ -47,14 +47,14 @@ app.UseAntiforgery();
 
 app.MapControllers();
 
-// Raw download of the current document.
+// Raw download of the current document (also serves "open current version").
 app.MapGet("/api/doc/{itemId}/content",
     async (string itemId, string? name, SealedLibraryService library) =>
     {
         var stream = await library.GetContentAsync(itemId);
         if (stream == null) return Results.NotFound();
-        return Results.Stream(stream,
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document", name ?? $"{itemId}.docx");
+        var fileName = name ?? $"{itemId}.docx";
+        return Results.Stream(stream, MimeFor(fileName), fileName);
     }).RequireAuthorization();
 
 // Streams a specific version of a document (opens in Word as a .docx download).
@@ -82,3 +82,11 @@ app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
 app.Run();
+
+static string MimeFor(string name) => Path.GetExtension(name).ToLowerInvariant() switch
+{
+    ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".pdf" => "application/pdf",
+    ".xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    _ => "application/octet-stream"
+};

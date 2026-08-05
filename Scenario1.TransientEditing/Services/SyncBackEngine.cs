@@ -47,7 +47,6 @@ public class SyncBackEngine
             // notifications; the demo polls it, which is functionally identical.
             var lastActivity = item.LastModifiedDateTime?.UtcDateTime ?? state.LastActivityUtc;
             state.LastActivityUtc = lastActivity;
-            state.LastModifiedBy = item.LastModifiedBy?.User?.DisplayName ?? state.LastModifiedBy;
             _store.Upsert(state);
 
             var idle = DateTime.UtcNow - lastActivity;
