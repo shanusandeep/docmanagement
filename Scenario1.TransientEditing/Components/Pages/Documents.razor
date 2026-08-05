@@ -156,6 +156,14 @@
                 : TransientDocumentService.OnlineEditLink(state);
             await JS.InvokeVoidAsync("launchUrl", url, !desktop);
         }
+        catch (Microsoft.Graph.Models.ODataErrors.ODataError ex) when (ex.ResponseStatusCode == 403)
+        {
+            // Scenario 1 is delegated: the signed-in user must hold rights on the library
+            var auth = await AuthProvider.GetAuthenticationStateAsync();
+            error = $"SharePoint denied access for {auth.User.Identity?.Name}. Scenario 1 edits as the signed-in user, " +
+                    "so that user needs baseline access to the document library (in production: membership in the " +
+                    "Serfis Editors security group; for this demo: add them under Site permissions → Add members).";
+        }
         catch (Exception ex)
         {
             try { ConsentHandler.HandleException(ex); }
