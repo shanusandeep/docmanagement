@@ -73,11 +73,25 @@
 
     @if (promptMode != null)
     {
-        <div class="d-flex gap-2 align-items-center border rounded px-2 py-2 mb-2 bg-white">
-            <span class="text-muted small">@PromptLabel</span>
-            <input class="form-control form-control-sm" style="max-width: 320px" @bind="promptValue" @bind:event="oninput" />
-            <button class="btn btn-primary btn-sm" @onclick="ConfirmPrompt" disabled="@(string.IsNullOrWhiteSpace(promptValue))">OK</button>
-            <button class="btn btn-outline-secondary btn-sm" @onclick="@(() => promptMode = null)">Cancel</button>
+        <div class="modal fade show d-block" tabindex="-1" style="background: rgba(14, 42, 68, 0.45)">
+            <div class="modal-dialog modal-dialog-centered" style="max-width: 420px">
+                <div class="modal-content">
+                    <div class="modal-header py-2" style="background: var(--scc-navy); color: #fff">
+                        <h6 class="modal-title">@PromptTitle</h6>
+                        <button type="button" class="btn-close btn-close-white" @onclick="@(() => promptMode = null)"></button>
+                    </div>
+                    <div class="modal-body">
+                        <label class="form-label small text-muted">@PromptLabel</label>
+                        <input class="form-control" @bind="promptValue" @bind:event="oninput"
+                               @onkeyup="@(e => { if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(promptValue)) _ = ConfirmPrompt(); })"
+                               @ref="promptInput" />
+                    </div>
+                    <div class="modal-footer py-2">
+                        <button class="btn btn-outline-secondary btn-sm" @onclick="@(() => promptMode = null)">Cancel</button>
+                        <button class="btn btn-primary btn-sm" @onclick="ConfirmPrompt" disabled="@(string.IsNullOrWhiteSpace(promptValue))">OK</button>
+                    </div>
+                </div>
+            </div>
         </div>
     }
 
@@ -212,13 +226,31 @@
     private LibraryDoc? Selected => items.FirstOrDefault(i => i.Id == selectedId);
     private LibraryDoc? SelectedFile => Selected is { IsFolder: false } f ? f : null;
 
-    private string PromptLabel => promptMode switch
+    private ElementReference promptInput;
+
+    private string PromptTitle => promptMode switch
     {
-        "newdoc" => "New document name:",
-        "newfolder" => "New folder name:",
-        "rename" => $"Rename '{Selected?.Name}' to:",
+        "newdoc" => "New Document",
+        "newfolder" => "New Folder",
+        "rename" => "Rename",
         _ => ""
     };
+
+    private string PromptLabel => promptMode switch
+    {
+        "newdoc" => "Document name",
+        "newfolder" => "Folder name",
+        "rename" => $"New name for '{Selected?.Name}'",
+        _ => ""
+    };
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (promptMode != null)
+        {
+            try { await promptInput.FocusAsync(); } catch { /* element may not be rendered yet */ }
+        }
+    }
 
     protected override async Task OnInitializedAsync() => await LoadAsync();
 
