@@ -1,52 +1,74 @@
 :root {
-    /* SCC brand palette — matches the design documents */
-    --scc-navy: #1F4E79;
-    --scc-navy-dark: #143755;
-    --scc-navy-deep: #0E2A44;
-    --scc-accent: #2E74B5;
-    --scc-gold: #F2B705;
+    /* Virginia SCC palette — sampled from scc.virginia.gov */
+    --scc-navy: #1D2A5E;      /* header/nav bands */
+    --scc-blue: #002B7F;      /* primary buttons / active steps */
+    --scc-blue-dark: #001F5C;
+    --scc-dark: #242840;      /* footer band */
+    --scc-teal: #008080;      /* title underline accent */
+    --scc-gray: #E0E0E0;      /* inactive pills */
 }
 
 html, body {
-    font-family: 'Segoe UI', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
 }
 
 a, .btn-link {
-    color: var(--scc-accent);
+    color: var(--scc-blue);
 }
 
 h1 {
     color: var(--scc-navy);
-    font-weight: 600;
+    font-weight: 700;
+}
+
+h1::after {
+    content: "";
+    display: block;
+    width: 100px;
+    height: 4px;
+    background: var(--scc-teal);
+    margin-top: 0.45rem;
 }
 
 h4, h5 {
-    color: var(--scc-navy-dark);
+    color: var(--scc-navy);
+    font-weight: 700;
 }
 
 .btn-primary {
     color: #fff;
-    background-color: var(--scc-navy);
-    border-color: var(--scc-navy);
+    background-color: var(--scc-blue);
+    border-color: var(--scc-blue);
+    border-radius: 0.15rem;
 }
 
 .btn-primary:hover, .btn-primary:focus, .btn-primary:active {
-    background-color: var(--scc-navy-dark) !important;
-    border-color: var(--scc-navy-dark) !important;
+    background-color: var(--scc-blue-dark) !important;
+    border-color: var(--scc-blue-dark) !important;
 }
 
 .btn-outline-primary {
-    color: var(--scc-navy);
-    border-color: var(--scc-navy);
+    color: var(--scc-blue);
+    border-color: var(--scc-blue);
+    border-radius: 0.15rem;
 }
 
 .btn-outline-primary:hover {
-    background-color: var(--scc-navy);
-    border-color: var(--scc-navy);
+    background-color: var(--scc-blue);
+    border-color: var(--scc-blue);
+}
+
+.btn-outline-secondary, .btn-outline-success, .btn-outline-danger, .btn-outline-info, .btn-outline-dark {
+    border-radius: 0.15rem;
 }
 
 .badge.bg-primary {
-    background-color: var(--scc-accent) !important;
+    background-color: var(--scc-blue) !important;
+}
+
+.badge.bg-info {
+    background-color: var(--scc-teal) !important;
+    color: #fff !important;
 }
 
 .badge.bg-success {
@@ -58,34 +80,38 @@ h4, h5 {
     border-bottom: 2px solid var(--scc-navy);
 }
 
-.scc-logo {
-    background: var(--scc-gold);
-    color: var(--scc-navy-deep);
+/* SCC wordmark in the sidebar — echoes the official stacked logo */
+.scc-wordmark {
+    color: #fff;
     font-weight: 800;
-    letter-spacing: 0.08em;
-    padding: 0.1rem 0.45rem;
-    border-radius: 0.25rem;
-    font-size: 1rem;
+    font-size: 1.35rem;
+    letter-spacing: 0.12em;
+    line-height: 1;
+    border-top: 2px solid #fff;
+    border-bottom: 2px solid #fff;
+    padding: 0.15rem 0.1rem;
 }
 
-.scc-logo + span {
-    font-size: 0.92rem;
-    line-height: 1.15;
+.scc-logo + span, .scc-wordmark + span {
+    font-size: 0.95rem;
+    font-weight: 600;
+    line-height: 1.2;
 }
 
 .scc-brand-sub {
-    font-size: 0.78rem;
+    font-size: 0.72rem;
+    font-weight: 400;
     color: rgba(255, 255, 255, 0.75);
     display: block;
-    line-height: 1;
+    line-height: 1.15;
 }
 
 .lead {
-    color: #3d4d5c;
+    color: #3d4652;
 }
 
 .btn:focus, .btn:active:focus, .btn-link.nav-link:focus, .form-control:focus, .form-check-input:focus {
-    box-shadow: 0 0 0 0.1rem white, 0 0 0 0.25rem var(--scc-accent);
+    box-shadow: 0 0 0 0.1rem white, 0 0 0 0.25rem var(--scc-teal);
 }
 
 .content {
