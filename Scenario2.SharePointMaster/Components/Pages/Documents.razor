@@ -1,18 +1,19 @@
 @page "/documents"
 @attribute [Authorize]
-@implements IDisposable
 @inject SealedLibraryService Library
 @inject DocumentRegistry Registry
-@inject ActivityLog Log
 @inject AuthenticationStateProvider AuthProvider
 @inject IJSRuntime JS
 
-<PageTitle>Documents — Scenario 2</PageTitle>
+<PageTitle>Documents — SERFIS</PageTitle>
 
-<h1>Case Documents (Sealed Library)</h1>
+<h1>Case Documents</h1>
 <p class="text-muted">
-    All documents live permanently in SharePoint. Access below is what the app database says —
-    SharePoint enforces exactly this, nothing more.
+    Listed live from the SharePoint library.
+    @if (sampleMode)
+    {
+        <span class="badge bg-secondary">sample data — SharePoint not configured yet</span>
+    }
 </p>
 
 @if (error != null)
@@ -20,150 +21,134 @@
     <div class="alert alert-danger">@error</div>
 }
 
-<div class="row">
-    <div class="col-lg-8">
-        <div class="mb-3 d-flex gap-2">
-            <input class="form-control form-control-sm" style="max-width: 240px" placeholder="Document name" @bind="newName" />
-            <input class="form-control form-control-sm" style="max-width: 160px" placeholder="Case number" @bind="newCase" />
-            <button class="btn btn-success btn-sm" @onclick="CreateDoc" disabled="@(busy != null)">Create in sealed library</button>
-        </div>
-
-        <table class="table table-hover align-middle">
-            <thead>
-                <tr>
-                    <th>Document</th>
-                    <th>Current access (from app DB)</th>
-                    <th style="width: 45%">Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach (var doc in docs)
-                {
-                    var grants = Registry.GrantsFor(doc.Id);
-                    <tr>
-                        <td>
-                            <strong>@doc.Name</strong><br />
-                            <small class="text-muted">@doc.CaseNumber · created by @doc.CreatedBy @doc.CreatedAtUtc.ToLocalTime().ToString("g")</small>
-                        </td>
-                        <td>
-                            @if (grants.Count == 0)
-                            {
-                                <span class="badge bg-dark">Sealed — no user access</span>
-                            }
-                            else
-                            {
-                                @foreach (var g in grants)
-                                {
-                                    <span class="badge @(g.Role == "write" ? "bg-primary" : "bg-info text-dark") me-1">
-                                        @g.UserUpn (@g.Role)
-                                    </span>
-                                }
-                            }
-                        </td>
-                        <td>
-                            @if (busy == doc.Id.ToString())
-                            {
-                                <span class="spinner-border spinner-border-sm me-2"></span>
-                                <span>working…</span>
-                            }
-                            else
-                            {
-                                <button class="btn btn-primary btn-sm" @onclick="() => OpenAsync(doc, role: 'w', desktop: true)">View/Edit (Word)</button>
-                                <button class="btn btn-outline-primary btn-sm" @onclick="() => OpenAsync(doc, role: 'w', desktop: false)">Edit Online</button>
-                                <button class="btn btn-outline-info btn-sm" @onclick="() => OpenAsync(doc, role: 'r', desktop: false)">View only</button>
-                                <button class="btn btn-outline-secondary btn-sm" @onclick="() => ToggleVersions(doc)">Versions</button>
-                                @if (grants.Count > 0)
-                                {
-                                    <button class="btn btn-outline-danger btn-sm" @onclick="() => RevokeAll(doc)">Revoke all</button>
-                                }
-                                <button class="btn btn-outline-dark btn-sm" @onclick="() => DeleteDoc(doc)">Delete</button>
-                            }
-                        </td>
-                    </tr>
-                    @if (versionsFor == doc.Id)
-                    {
-                        <tr>
-                            <td colspan="3" class="bg-light">
-                                <strong>Version history (native SharePoint)</strong>
-                                @if (versions == null)
-                                {
-                                    <div><span class="spinner-border spinner-border-sm"></span> loading…</div>
-                                }
-                                else if (versions.Count == 0)
-                                {
-                                    <div class="text-muted">No versions yet.</div>
-                                }
-                                else
-                                {
-                                    <table class="table table-sm mb-0">
-                                        <thead><tr><th>Version</th><th>Modified</th><th>By</th><th>Size</th><th></th></tr></thead>
-                                        <tbody>
-                                            @foreach (var v in versions)
-                                            {
-                                                <tr>
-                                                    <td>@v.Id @(v.IsCurrent ? "(current)" : "")</td>
-                                                    <td>@v.ModifiedUtc?.ToLocalTime().ToString("g")</td>
-                                                    <td>@v.ModifiedBy</td>
-                                                    <td>@((v.SizeBytes ?? 0) / 1024) KB</td>
-                                                    <td>
-                                                        @if (!v.IsCurrent)
-                                                        {
-                                                            <button class="btn btn-outline-primary btn-sm" @onclick="() => Restore(doc, v.Id)">
-                                                                Make current
-                                                            </button>
-                                                        }
-                                                    </td>
-                                                </tr>
-                                            }
-                                        </tbody>
-                                    </table>
-                                }
-                            </td>
-                        </tr>
-                    }
-                }
-            </tbody>
-        </table>
-    </div>
-
-    <div class="col-lg-4">
-        <h5>Activity feed</h5>
-        <div style="max-height: 60vh; overflow-y: auto">
-            @foreach (var entry in Log.Snapshot())
-            {
-                <div class="border-bottom py-1">
-                    <small class="text-muted">@entry.AtUtc.ToLocalTime().ToString("T")</small>
-                    <small class="@(entry.Level == "error" ? "text-danger" : entry.Level == "warn" ? "text-warning" : "")">
-                        @entry.Message
-                    </small>
-                </div>
-            }
-        </div>
-    </div>
+<div class="mb-3 d-flex gap-2">
+    <input class="form-control form-control-sm" style="max-width: 260px" placeholder="New document name" @bind="newName" />
+    <button class="btn btn-primary btn-sm" @onclick="CreateDoc" disabled="@(busy != null || sampleMode)">Create</button>
+    <button class="btn btn-outline-primary btn-sm ms-auto" @onclick="LoadAsync" disabled="@(busy != null)">Refresh</button>
 </div>
 
+<table class="table table-hover align-middle">
+    <thead>
+        <tr>
+            <th>Document</th>
+            <th>Modified</th>
+            <th style="width: 42%">Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var doc in docs)
+        {
+            <tr>
+                <td>
+                    <strong>@doc.Name</strong>
+                    @foreach (var g in GrantsFor(doc.Id))
+                    {
+                        <span class="badge @(g.Role == "write" ? "bg-primary" : "bg-info") ms-1">@g.UserUpn</span>
+                    }
+                </td>
+                <td>
+                    <small>@doc.ModifiedUtc?.ToLocalTime().ToString("g")<br />
+                        <span class="text-muted">@doc.ModifiedBy · @((doc.SizeBytes ?? 0) / 1024) KB</span></small>
+                </td>
+                <td>
+                    @if (busy == doc.Id)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2"></span>
+                        <span>working…</span>
+                    }
+                    else
+                    {
+                        <button class="btn btn-primary btn-sm" @onclick="() => ViewInWord(doc)" disabled="@sampleMode">View in Word</button>
+                        <button class="btn btn-outline-primary btn-sm" @onclick="() => ToggleVersions(doc)">Versions</button>
+                        <a class="btn btn-outline-primary btn-sm @(sampleMode ? "disabled" : null)"
+                           href="/api/doc/@doc.Id/pdf?name=@Uri.EscapeDataString(doc.Name)" target="_blank">Download PDF</a>
+                        <button class="btn btn-outline-danger btn-sm" @onclick="() => DeleteDoc(doc)" disabled="@sampleMode">Delete</button>
+                    }
+                </td>
+            </tr>
+            @if (versionsFor == doc.Id)
+            {
+                <tr>
+                    <td colspan="3" class="bg-light">
+                        <strong>Versions</strong>
+                        @if (versions == null)
+                        {
+                            <div><span class="spinner-border spinner-border-sm"></span> loading…</div>
+                        }
+                        else if (versions.Count == 0)
+                        {
+                            <div class="text-muted">No versions yet.</div>
+                        }
+                        else
+                        {
+                            <table class="table table-sm mb-0" style="max-width: 760px">
+                                <thead><tr><th>#</th><th>Modified</th><th>By</th><th>Size</th><th></th></tr></thead>
+                                <tbody>
+                                    @foreach (var v in versions)
+                                    {
+                                        <tr>
+                                            <td><strong>v@(v.Id)</strong> @(v.IsCurrent ? "· current" : "")</td>
+                                            <td>@v.ModifiedUtc?.ToLocalTime().ToString("g")</td>
+                                            <td>@v.ModifiedBy</td>
+                                            <td>@((v.SizeBytes ?? 0) / 1024) KB</td>
+                                            <td>
+                                                <a class="btn btn-outline-primary btn-sm @(sampleMode ? "disabled" : null)"
+                                                   href="/api/doc/@doc.Id/versions/@v.Id/content?name=@Uri.EscapeDataString(doc.Name)">Open</a>
+                                                @if (!v.IsCurrent)
+                                                {
+                                                    <button class="btn btn-outline-secondary btn-sm" @onclick="() => Restore(doc, v.Id)" disabled="@sampleMode">
+                                                        Make current
+                                                    </button>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        }
+                    </td>
+                </tr>
+            }
+        }
+    </tbody>
+</table>
+
 @code {
-    private List<RegisteredDocument> docs = new();
+    private List<LibraryDoc> docs = new();
     private string? busy;
     private string? error;
     private string newName = "";
-    private string newCase = "";
-    private Guid? versionsFor;
+    private string? versionsFor;
     private List<VersionInfo>? versions;
+    private bool sampleMode;
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private List<AccessGrant> GrantsFor(string driveItemId)
     {
-        Log.Changed += OnLogChanged;
-        Refresh();
+        var doc = Registry.Documents().FirstOrDefault(d => d.DriveItemId == driveItemId);
+        return doc == null ? [] : Registry.GrantsFor(doc.Id);
     }
 
-    private void OnLogChanged() => _ = InvokeAsync(() =>
+    private async Task LoadAsync()
     {
-        Refresh();
-        StateHasChanged();
-    });
-
-    private void Refresh() => docs = Registry.Documents();
+        error = null;
+        if (!Library.IsConfigured)
+        {
+            // Placeholder rows so the UI can be reviewed before Azure setup
+            sampleMode = true;
+            docs = Registry.Documents()
+                .Select(d => new LibraryDoc(d.DriveItemId, d.Name, 24_576, d.LastActivityUtc, d.CreatedBy, d.WebUrl))
+                .ToList();
+            return;
+        }
+        try
+        {
+            sampleMode = false;
+            docs = await Library.ListLibraryAsync();
+        }
+        catch (Exception ex) { error = ex.Message; }
+    }
 
     private async Task<string> CurrentUpn()
     {
@@ -180,71 +165,71 @@
         error = null;
         try
         {
-            var upn = await CurrentUpn();
-            await Library.CreateDocumentAsync(newName.Trim(),
-                string.IsNullOrWhiteSpace(newCase) ? "Case-0000" : newCase.Trim(), upn);
+            await Library.CreateDocumentAsync(newName.Trim(), "Case", await CurrentUpn());
             newName = "";
-        }
-        catch (Exception ex) { error = ex.Message; }
-        finally { busy = null; Refresh(); }
-    }
-
-    private async Task OpenAsync(RegisteredDocument doc, char role, bool desktop)
-    {
-        busy = doc.Id.ToString();
-        error = null;
-        try
-        {
-            var upn = await CurrentUpn();
-            await Library.GrantAsync(doc, upn, role == 'w' ? "write" : "read");
-            var url = desktop
-                ? SealedLibraryService.DesktopEditLink(doc)
-                : SealedLibraryService.OnlineLink(doc, edit: role == 'w');
-            await JS.InvokeVoidAsync("launchUrl", url, !desktop);
-        }
-        catch (Exception ex) { error = ex.Message; }
-        finally { busy = null; Refresh(); }
-    }
-
-    private async Task RevokeAll(RegisteredDocument doc)
-    {
-        busy = doc.Id.ToString();
-        error = null;
-        try { await Library.RevokeAllAsync(doc); }
-        catch (Exception ex) { error = ex.Message; }
-        finally { busy = null; Refresh(); }
-    }
-
-    private async Task ToggleVersions(RegisteredDocument doc)
-    {
-        if (versionsFor == doc.Id) { versionsFor = null; versions = null; return; }
-        versionsFor = doc.Id;
-        versions = null;
-        try { versions = await Library.ListVersionsAsync(doc); }
-        catch (Exception ex) { error = ex.Message; versionsFor = null; }
-    }
-
-    private async Task Restore(RegisteredDocument doc, string versionId)
-    {
-        busy = doc.Id.ToString();
-        error = null;
-        try
-        {
-            await Library.RestoreVersionAsync(doc, versionId);
-            versions = await Library.ListVersionsAsync(doc);
+            await LoadAsync();
         }
         catch (Exception ex) { error = ex.Message; }
         finally { busy = null; }
     }
 
-    private async Task DeleteDoc(RegisteredDocument doc)
+    private async Task ViewInWord(LibraryDoc doc)
     {
-        busy = doc.Id.ToString();
+        busy = doc.Id;
         error = null;
-        try { await Library.DeleteDocumentAsync(doc); }
+        try
+        {
+            var registered = Library.EnsureRegistered(doc.Id, doc.Name, doc.WebUrl);
+            await Library.GrantAsync(registered, await CurrentUpn(), "write");
+            await JS.InvokeVoidAsync("launchUrl", $"ms-word:ofe|u|{doc.WebUrl}", false);
+        }
         catch (Exception ex) { error = ex.Message; }
-        finally { busy = null; Refresh(); }
+        finally { busy = null; }
     }
 
-    public void Dispose() => Log.Changed -= OnLogChanged;
+    private async Task ToggleVersions(LibraryDoc doc)
+    {
+        if (versionsFor == doc.Id) { versionsFor = null; versions = null; return; }
+        versionsFor = doc.Id;
+        versions = null;
+        if (sampleMode)
+        {
+            versions =
+            [
+                new VersionInfo("3.0", DateTime.UtcNow.AddMinutes(-40), "Priya Nair", 24_576, true),
+                new VersionInfo("2.0", DateTime.UtcNow.AddHours(-5), "Jordan Lee", 22_118, false),
+                new VersionInfo("1.0", DateTime.UtcNow.AddDays(-1), "Alex Rivera", 19_804, false),
+            ];
+            return;
+        }
+        try { versions = await Library.ListVersionsByItemAsync(doc.Id); }
+        catch (Exception ex) { error = ex.Message; versionsFor = null; }
+    }
+
+    private async Task Restore(LibraryDoc doc, string versionId)
+    {
+        busy = doc.Id;
+        error = null;
+        try
+        {
+            await Library.RestoreVersionByItemAsync(doc.Id, versionId, doc.Name);
+            versions = await Library.ListVersionsByItemAsync(doc.Id);
+            await LoadAsync();
+        }
+        catch (Exception ex) { error = ex.Message; }
+        finally { busy = null; }
+    }
+
+    private async Task DeleteDoc(LibraryDoc doc)
+    {
+        busy = doc.Id;
+        error = null;
+        try
+        {
+            await Library.DeleteItemAsync(doc.Id, doc.Name);
+            await LoadAsync();
+        }
+        catch (Exception ex) { error = ex.Message; }
+        finally { busy = null; }
+    }
 }

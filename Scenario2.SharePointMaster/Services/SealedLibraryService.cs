@@ -88,6 +88,76 @@ public class SealedLibraryService
         _log.Info($"'{doc.Name}' deleted — recoverable from the SharePoint recycle bin for ~93 days (and governed by any Purview retention policy).");
     }
 
+    // ---- Live library listing ----------------------------------------------
+
+    /// <summary>Documents straight from the SharePoint drive — no app-DB filter.</summary>
+    public async Task<List<LibraryDoc>> ListLibraryAsync()
+    {
+        var response = await Graph.Drives[_sp.DriveId].Items["root"].Children
+            .GetAsync(rc => rc.QueryParameters.Orderby = ["name"]);
+        return (response?.Value ?? [])
+            .Where(i => i.File != null)
+            .Select(i => new LibraryDoc(
+                i.Id!, i.Name ?? "(unnamed)", i.Size,
+                i.LastModifiedDateTime?.UtcDateTime,
+                i.LastModifiedBy?.User?.DisplayName,
+                i.WebUrl ?? ""))
+            .ToList();
+    }
+
+    /// <summary>Finds (or creates) the registry row for a drive item so grants can attach to it.</summary>
+    public RegisteredDocument EnsureRegistered(string driveItemId, string name, string webUrl)
+    {
+        var doc = _registry.Documents().FirstOrDefault(d => d.DriveItemId == driveItemId);
+        if (doc != null) return doc;
+        doc = new RegisteredDocument
+        {
+            Name = name,
+            CaseNumber = "-",
+            DriveItemId = driveItemId,
+            WebUrl = webUrl,
+            CreatedBy = "(existing SharePoint document)",
+            CreatedAtUtc = DateTime.UtcNow,
+            LastActivityUtc = DateTime.UtcNow
+        };
+        _registry.AddDocument(doc);
+        return doc;
+    }
+
+    public async Task DeleteItemAsync(string driveItemId, string name)
+    {
+        await Graph.Drives[_sp.DriveId].Items[driveItemId].DeleteAsync();
+        var doc = _registry.Documents().FirstOrDefault(d => d.DriveItemId == driveItemId);
+        if (doc != null) _registry.RemoveDocument(doc.Id);
+        _log.Info($"'{name}' deleted — recoverable from the SharePoint recycle bin for ~93 days.");
+    }
+
+    public async Task<List<VersionInfo>> ListVersionsByItemAsync(string driveItemId)
+    {
+        var response = await Graph.Drives[_sp.DriveId].Items[driveItemId].Versions.GetAsync();
+        var versions = response?.Value ?? [];
+        return versions
+            .Select((v, i) => new VersionInfo(
+                v.Id ?? "", v.LastModifiedDateTime?.UtcDateTime,
+                v.LastModifiedBy?.User?.DisplayName, v.Size, i == 0))
+            .ToList();
+    }
+
+    public async Task RestoreVersionByItemAsync(string driveItemId, string versionId, string name)
+    {
+        await Graph.Drives[_sp.DriveId].Items[driveItemId].Versions[versionId].RestoreVersion.PostAsync();
+        _log.Info($"Version {versionId} of '{name}' restored as the current version.");
+    }
+
+    /// <summary>Content of one specific version (opens/downloads as .docx).</summary>
+    public Task<Stream?> GetVersionContentAsync(string driveItemId, string versionId) =>
+        Graph.Drives[_sp.DriveId].Items[driveItemId].Versions[versionId].Content.GetAsync();
+
+    /// <summary>Current document converted to PDF by SharePoint (Graph format=pdf).</summary>
+    public Task<Stream?> GetPdfAsync(string driveItemId) =>
+        Graph.Drives[_sp.DriveId].Items[driveItemId].Content
+            .GetAsync(rc => rc.QueryParameters.Format = "pdf");
+
     // ---- Just-in-time access ------------------------------------------------
 
     public async Task<AccessGrant> GrantAsync(RegisteredDocument doc, string upn, string role)
