@@ -6,7 +6,9 @@ using Scenario1.TransientEditing.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-string[] graphScopes = ["User.Read", "Files.ReadWrite.All"];
+// Sites.Selected (delegated): acts as the user, but only on sites explicitly
+// granted to this app — no tenant-wide file access is ever requested.
+string[] graphScopes = ["User.Read", "Sites.Selected"];
 
 // Delegated auth: the app always acts as the signed-in user, so SharePoint's
 // "Modified by" and Track Changes attribution show the real person.

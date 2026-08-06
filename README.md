@@ -29,7 +29,7 @@ Create one app registration (both apps can share it):
 - **Front-channel logout / post-logout**: optional for the demo
 - **Client secret**: create one; store it with `dotnet user-secrets` (below)
 - **API permissions**:
-  - Delegated: `openid`, `profile`, `offline_access`, `User.Read`, `Files.ReadWrite.All` (Scenario 1 interactive editing)
+  - Delegated: `openid`, `profile`, `offline_access`, `User.Read`, `Sites.Selected` (Scenario 1 edits as the user, limited to sites granted to the app)
   - Application: `Sites.Selected` (Scenario 2 custodian + Scenario 1 background sweep)
   - Grant **admin consent**
 - **Sites.Selected step 2** (grants nothing until you do this): give the app *write* on the target site:
