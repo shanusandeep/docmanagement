@@ -191,6 +191,52 @@ sequenceDiagram
    `versions/{id}/content` for the *current* version — current content comes
    from the item itself.
 
+## Why Scenario 2 — the talking points
+
+- **Every version kept, automatically.** Each editing session builds SharePoint's
+  native version history — no code, no discipline required. Open the Versions
+  popup and show v1.0 → v7.0 of a real document.
+- **See any previous version.** One click opens the exact document as it was —
+  who changed it, when, at what size.
+- **Go back in time.** "Make current" restores any previous version — nothing is
+  ever lost, even after bad edits or accepted changes.
+- **Retention you can configure.** Deleted documents sit in the recycle bin
+  ~93 days by default and stay restorable; a Purview retention policy can
+  enforce 90/180 days or legal hold at the compliance layer. A network share
+  has none of this without third-party backup tooling.
+- **Less machinery.** No download/upload, no copy-back jobs, no second copy of
+  the truth drifting out of sync. One document, one place.
+- **Co-authoring with names.** Multiple people in the same document at once,
+  every change tracked to a real person — the original business requirement.
+- **Two audit trails.** Our database records every grant; SharePoint/Purview
+  logs every open, edit, and permission change independently.
+
+## "But is SharePoint secure?" — the answer
+
+The fear is *"if documents are in SharePoint, everyone can see them."* In this
+design, the opposite is true:
+
+- **The library is sealed.** No user, no group, no "Everyone" — zero standing
+  access. The only identity with access is the application itself.
+- **The app is caged too.** `Sites.Selected` + an explicit per-site grant means
+  the app can reach exactly one site in the entire tenant. We deliberately do
+  NOT use `Files.ReadWrite.All` or `Sites.ReadWrite.All`.
+- **Users get access one document at a time**, granted the moment they click
+  View/Edit and revoked automatically when editing ends. Browsing SharePoint
+  directly, a user sees only documents they currently hold — the rest don't
+  appear in the library view *or in search*. (Demo this live: it kills the
+  objection in ten seconds.)
+- **Our database is the authority.** SharePoint permissions are a projection of
+  it, and the reconciliation sweep deletes any permission the database doesn't
+  know about — a missed revocation can't survive; access can't drift.
+- **The honest asterisk:** SharePoint/Global admins can always reach content —
+  exactly as file-server admins can read the network share today. Not a
+  regression, and unlike the file server, every admin touch lands in the audit
+  log.
+
+Net: documents in this SharePoint library are *more* locked down than on the
+network share, and you gain versioning, retention, and auditing in the trade.
+
 ## Gotchas we hit (tell these war stories — they teach the API)
 
 1. **`webUrl` is not the file** — it's the Doc.aspx viewer. Word wants `webDavUrl`.
