@@ -237,6 +237,27 @@ design, the opposite is true:
 Net: documents in this SharePoint library are *more* locked down than on the
 network share, and you gain versioning, retention, and auditing in the trade.
 
+## Cost & licensing — the short version
+
+- **No new licenses.** SharePoint Online, co-authoring, versioning, the recycle
+  bin, and standard retention policies are all included in the Microsoft 365
+  plans our users already have (they're already signed into Word/Outlook).
+  A user needs an M365 license to open documents — every SERFIS user has one.
+- **The Graph API is free.** No per-call charges for anything this solution
+  uses — uploads, permissions, versions, PDF conversion, change notifications.
+  App registrations in Entra are free too.
+- **Storage is already paid for.** The tenant's SharePoint pool is 1 TB +
+  10 GB per licensed user; Office documents are tiny against that. (Versions
+  count toward storage — version limits are configurable per library if it
+  ever matters.)
+- **It removes costs:** the TxTextControl/PDF-generator license (Graph converts
+  to PDF for free), plus file-server storage, backups, and upkeep once the
+  share is retired.
+- **The only maybe:** premium compliance features (advanced eDiscovery,
+  records management) need E5/G5-tier licensing — but the 90/180-day retention
+  we discussed works on standard tiers. Nothing else in this design has a
+  price tag.
+
 ## Gotchas we hit (tell these war stories — they teach the API)
 
 1. **`webUrl` is not the file** — it's the Doc.aspx viewer. Word wants `webDavUrl`.
