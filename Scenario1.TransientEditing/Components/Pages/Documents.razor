@@ -2,11 +2,9 @@
 @attribute [Authorize]
 @implements IDisposable
 @inject TransientDocumentService DocService
-@inject SyncBackEngine Sync
 @inject NetworkShareService Share
 @inject DocumentStateStore Store
 @inject ActivityLog Log
-@inject Microsoft.Graph.GraphServiceClient Graph
 @inject AuthenticationStateProvider AuthProvider
 @inject IJSRuntime JS
 @inject Microsoft.Identity.Web.MicrosoftIdentityConsentAndConditionalAccessHandler ConsentHandler
@@ -39,9 +37,6 @@
             <span class="ms-1">Upload file</span>
             <InputFile OnChange="OnUpload" style="display:none" disabled="@(busy != null)" />
         </label>
-        <button class="btn btn-sm" title="Create a new Word document here" @onclick="@(() => StartPrompt("newdoc"))" disabled="@(busy != null)">
-            <Icon Name="plus" Size="14" /> <span class="ms-1">New document</span>
-        </button>
         <button class="btn btn-sm" title="Create a new folder here" @onclick="@(() => StartPrompt("newfolder"))" disabled="@(busy != null)">
             <Icon Name="folder" Size="14" /> <span class="ms-1">New folder</span>
         </button>
@@ -75,18 +70,6 @@
         </button>
         <button class="btn btn-sm text-danger" title="Delete the selected item" @onclick="@(() => confirmingDelete = Selected)" disabled="@(Selected == null || busy != null)">
             <Icon Name="trash" Size="14" /> <span class="ms-1">Delete</span>
-        </button>
-        @if (SelectedState != null)
-        {
-            <button class="btn btn-sm" title="Sync this document back to the network share now" @onclick="SyncSelected" disabled="@(busy != null)">
-                <Icon Name="restore" Size="14" /> <span class="ms-1">Sync back</span>
-            </button>
-        }
-        <button class="btn btn-sm ms-auto" title="Run the sync-back sweep now (simulates the scheduled job)" @onclick="RunSweep" disabled="@(busy != null)">
-            <Icon Name="history" Size="14" />
-        </button>
-        <button class="btn btn-sm" title="Refresh" @onclick="Refresh" disabled="@(busy != null)">
-            <Icon Name="refresh" Size="14" />
         </button>
     </div>
 
@@ -172,7 +155,6 @@
         <tbody>
             @foreach (var item in entries)
             {
-                var state = item.IsFolder ? null : Store.Get(item.RelativePath);
                 <tr class="@(selectedPath == item.RelativePath ? "table-active" : null)">
                     <td>
                         <input class="form-check-input" type="checkbox"
@@ -189,10 +171,6 @@
                         else
                         {
                             <span><Icon Name="file" Size="14" /> @item.Name</span>
-                            @if (state != null)
-                            {
-                                <span class="badge bg-primary ms-2">In SharePoint</span>
-                            }
                         }
                     </td>
                     <td class="text-muted">
@@ -200,13 +178,9 @@
                         {
                             <text>@(item.ChildCount ?? 0) item(s)</text>
                         }
-                        else if (state != null)
-                        {
-                            <text>being edited · opened by @state.CheckedOutBy · last activity @state.LastActivityUtc.ToLocalTime().ToString("t")</text>
-                        }
                         else
                         {
-                            <text>@((item.SizeBytes ?? 0) / 1024) KB · on network share</text>
+                            <text>@((item.SizeBytes ?? 0) / 1024) KB</text>
                         }
                     </td>
                     <td>@item.ModifiedUtc.ToLocalTime().ToString("g")</td>
@@ -235,14 +209,12 @@
     private ShareEntry? Selected => entries.FirstOrDefault(e => e.RelativePath == selectedPath);
     private ShareEntry? SelectedFile => Selected is { IsFolder: false } f ? f : null;
     private ShareEntry? SelectedDocx => SelectedFile is { } f && f.Name.EndsWith(".docx", StringComparison.OrdinalIgnoreCase) ? f : null;
-    private DocumentState? SelectedState => SelectedFile is { } f ? Store.Get(f.RelativePath) : null;
 
     private static bool IsConvertible(string name) =>
         System.Text.RegularExpressions.Regex.IsMatch(name, @"\.(docx?|xlsx?)$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
     private string PromptTitle => promptMode switch
     {
-        "newdoc" => "New Document",
         "newfolder" => "New Folder",
         "rename" => "Rename",
         _ => ""
@@ -250,7 +222,6 @@
 
     private string PromptLabel => promptMode switch
     {
-        "newdoc" => "Document name",
         "newfolder" => "Folder name",
         "rename" => $"New name for '{Selected?.Name}'",
         _ => ""
@@ -318,10 +289,6 @@
         {
             switch (mode)
             {
-                case "newdoc":
-                    Share.CreateNew(CurrentDir, value);
-                    Log.Info($"Created '{value}' on the network share (as Serfis would).");
-                    break;
                 case "newfolder":
                     Share.CreateFolder(CurrentDir, value);
                     Log.Info($"Folder '{value}' created on the network share.");
@@ -329,7 +296,7 @@
                 case "rename" when Selected is { } sel:
                     if (!sel.IsFolder && Store.Get(sel.RelativePath) != null)
                     {
-                        warning = $"'{sel.Name}' is currently in SharePoint being edited — sync it back before renaming.";
+                        warning = $"'{sel.Name}' is currently being edited — try again once editing is finished.";
                         break;
                     }
                     Share.Rename(sel.RelativePath, value);
@@ -387,42 +354,6 @@
         finally { busy = null; Refresh(); }
     }
 
-    private async Task SyncSelected()
-    {
-        if (SelectedState is not { } state) return;
-        busy = state.FileName;
-        error = null;
-        try
-        {
-            var result = await Sync.TrySyncBackAsync(Graph, state, force: true);
-            if (result == SyncResult.Locked)
-                warning = "Document is still open in Word/Office Online — close it first (the lock probe protects active editors).";
-        }
-        catch (Exception ex)
-        {
-            try { ConsentHandler.HandleException(ex); }
-            catch { error = ex.Message; }
-        }
-        finally { busy = null; Refresh(); }
-    }
-
-    private async Task RunSweep()
-    {
-        busy = "*";
-        error = null;
-        try
-        {
-            foreach (var state in Store.All())
-                await Sync.TrySyncBackAsync(Graph, state, force: false);
-        }
-        catch (Exception ex)
-        {
-            try { ConsentHandler.HandleException(ex); }
-            catch { error = ex.Message; }
-        }
-        finally { busy = null; Refresh(); }
-    }
-
     private ShareEntry? confirmingDelete;
 
     private void DeleteConfirmed()
@@ -442,7 +373,7 @@
             }
             else if (Store.Get(sel.RelativePath) != null)
             {
-                warning = $"'{sel.Name}' is currently in SharePoint being edited — sync it back before deleting.";
+                warning = $"'{sel.Name}' is currently being edited — try again once editing is finished.";
             }
             else
             {
