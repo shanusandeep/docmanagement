@@ -45,6 +45,16 @@ public class WordTemplateService
         // TrackRevisions is the SDK class for the <w:trackChanges/> settings element
         if (!settingsPart.Settings.Elements<TrackRevisions>().Any())
             settingsPart.Settings.PrependChild(new TrackRevisions());
+        if (!settingsPart.Settings.Elements<Compatibility>().Any())
+        {
+            // declare modern Word format so documents don't open in Compatibility Mode
+            settingsPart.Settings.AppendChild(new Compatibility(new CompatibilitySetting
+            {
+                Name = CompatSettingNameValues.CompatibilityMode,
+                Uri = "http://schemas.microsoft.com/office/word",
+                Val = "15"
+            }));
+        }
         settingsPart.Settings.Save();
     }
 }

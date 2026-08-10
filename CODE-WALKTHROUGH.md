@@ -65,7 +65,7 @@ further constrained by the *user's own* SharePoint rights — delegated access i
 always the intersection of the two.
 
 **Track Changes enforcement** (`WordTemplateService`). A .docx is a ZIP of XML;
-`word/settings.xml` with `<w:trackChanges/>` (SDK class `TrackRevisions`) means
+`word/settings.xml` with `<w:trackRevisions/>` (SDK class `TrackRevisions`) means
 "revision tracking on". Every path a document takes into SharePoint — checkout,
 create, upload, new version — runs the bytes through `EnsureTrackChanges` first,
 so no Word document lands in SharePoint without tracking enabled. Attribution is
