@@ -131,8 +131,8 @@ sequenceDiagram
      file open, so an open document is never pulled away,
    - download → write to share → delete from SharePoint (recycle bin, or
      permanent if `Demo:UsePermanentDelete`), forget the state.
-   - The toolbar's clock icon runs the same pass on demand; "Sync back" forces
-     one document (still lock-probed).
+   - The return trip is fully automatic and invisible in the UI — end users
+     never see checkout state or sync controls.
 5. **PDF** (`/api/pdf`): checked-out docs convert in place
    (`GET /content?format=pdf`); share-resident docs are uploaded to a reused
    `__pdf-tmp/` scratch folder, converted, and the temp file permanently
