@@ -207,3 +207,13 @@ article.content {
     margin-left: auto !important;
     margin-right: auto !important;
 }
+
+.sp-sync-hint {
+    color: #9aa0a6;
+    font-size: 0.72rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding-right: 0.4rem;
+    cursor: default;
+}

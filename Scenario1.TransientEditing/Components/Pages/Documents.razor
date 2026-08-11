@@ -71,6 +71,12 @@
         <button class="btn btn-sm text-danger" title="Delete the selected item" @onclick="@(() => confirmingDelete = Selected)" disabled="@(Selected == null || busy != null)">
             <Icon Name="trash" Size="14" /> <span class="ms-1">Delete</span>
         </button>
+        @if (PendingSync > 0)
+        {
+            <span class="sp-sync-hint ms-auto" title="@PendingSync document(s) being saved back to the network location">
+                <Icon Name="restore" Size="11" /> @PendingSync
+            </span>
+        }
     </div>
 
     @if (confirmingDelete is { } deleting)
@@ -204,6 +210,8 @@
     private string? promptMode;   // newdoc | newfolder | rename
     private string promptValue = "";
     private ElementReference promptInput;
+
+    private int PendingSync => Store.All().Count;
 
     private string CurrentDir => string.Join('/', pathSegments);
     private ShareEntry? Selected => entries.FirstOrDefault(e => e.RelativePath == selectedPath);

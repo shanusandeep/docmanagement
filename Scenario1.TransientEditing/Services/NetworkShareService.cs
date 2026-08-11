@@ -75,13 +75,6 @@ public class NetworkShareService
         await content.CopyToAsync(fs);
     }
 
-    public void CreateNew(string relativeDir, string fileName)
-    {
-        if (!fileName.EndsWith(".docx", StringComparison.OrdinalIgnoreCase)) fileName += ".docx";
-        var path = Full(Join(relativeDir, fileName));
-        File.WriteAllBytes(path, _word.CreateBlankDocx(Path.GetFileNameWithoutExtension(fileName)));
-    }
-
     public void CreateFolder(string relativeDir, string name)
     {
         if (name.IndexOfAny(['/', '\\']) >= 0) throw new InvalidOperationException("Folder name cannot contain path separators.");
